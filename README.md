@@ -38,7 +38,9 @@ For development, we recommend installing from source:
 ```bash
 git clone https://github.com/allenai/OLMo-core.git
 cd OLMo-core
-pip install -e .[all]
+python3.10 -m venv venv  # may have to install python3.10 specifically 1st
+source venv/bin/activate
+pip install -e ".[all]"
 ```
 Or you can install from PyPI with:
 
