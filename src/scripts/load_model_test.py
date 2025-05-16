@@ -22,7 +22,7 @@ python src/examples/huggingface/convert_checkpoint_from_hf.py \
 
 # Rebuilding the same Transformer architecture:
 tok_cfg = TokenizerConfig.dolma2()
-sliding_window_config = SlidingWindowAttentionConfig(pattern=[True])
+sliding_window_config = SlidingWindowAttentionConfig(pattern=[True], window_size=32)
 model_cfg = TransformerConfig.olmo2_1B(tok_cfg.padded_vocab_size(), sliding_window=sliding_window_config, use_flash=True)
 model: torch.nn.Module = model_cfg.build().eval()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -50,7 +50,7 @@ if attention_mask is not None:
 
 # Manual autoregressive decoding loop
 model.eval()
-max_new_tokens = 50
+max_new_tokens = 128
 generated_ids = input_ids
 
 with torch.no_grad() and torch.amp.autocast('cuda'):
@@ -65,6 +65,8 @@ with torch.no_grad() and torch.amp.autocast('cuda'):
         # logits = outputs.logits
         next_token_logits = logits[:, -1, :]
         next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+        if next_token.item() == tokenizer.eos_token_id:
+            break
         generated_ids = torch.cat([generated_ids, next_token], dim=-1)
         if attention_mask is not None:
             new_mask = torch.ones_like(next_token, dtype=attention_mask.dtype)
@@ -72,3 +74,11 @@ with torch.no_grad() and torch.amp.autocast('cuda'):
 
 output_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
 print(output_text)
+"""
+The capital of France is Paris. The French language is spoken in France. The French people are known as the French. The
+French flag is red with a white cross on a blue background. The French flag is the same as the flag of the United States.
+The French language is the same as the language of the United States. The French language is the same as the language of
+the United States. The French language is the same as the language of the United States. The French language is the same
+as the language of the United States. The French language is the same as the language of the United States. The French
+language is the same as the language of the [max tokens reached]
+"""
