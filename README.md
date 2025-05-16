@@ -38,8 +38,13 @@ For development, we recommend installing from source:
 ```bash
 git clone https://github.com/allenai/OLMo-core.git
 cd OLMo-core
-python3.10 -m venv venv  # may have to install python3.10 specifically 1st
-source venv/bin/activate
+conda create --name TOLMo python=3.11
+conda activate TOLMo
+pip install torch==2.6 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install --no-build-isolation --no-cache-dir "grouped_gemm @ git+https://git@github.com/tgale96/grouped_gemm.git@main"
+pip install --no-build-isolation --no-cache-dir flash-attn==2.7.4post1
+pip install --no-build-isolation --no-cache-dir ring-flash-attn==0.1.4
+pip install --no-build-isolation --no-cache-dir liger-kernel==0.5.4
 pip install -e ".[all]"
 ```
 Or you can install from PyPI with:

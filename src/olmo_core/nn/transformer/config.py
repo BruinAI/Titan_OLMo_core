@@ -919,6 +919,7 @@ class TransformerConfig(Config):
                 qk_norm=layer_norm if qk_norm else None,
                 use_flash=use_flash,
                 dtype=dtype,
+                **kwargs,
             ),
             feed_forward=feed_forward,
             feed_forward_moe=feed_forward_moe,
@@ -932,7 +933,6 @@ class TransformerConfig(Config):
             block=block,
             lm_head=LMHeadConfig(layer_norm=layer_norm, bias=False, dtype=dtype),
             dtype=dtype,
-            **kwargs,
         )
 
     @classmethod
