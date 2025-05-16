@@ -1,7 +1,7 @@
 from olmo_core.distributed.checkpoint import load_state_dict
 from olmo_core.nn.transformer import TransformerConfig
 from olmo_core.data import TokenizerConfig
-from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
 tokenizer_config = TokenizerConfig.dolma2()
@@ -15,44 +15,73 @@ hf_model = AutoModelForCausalLM.from_pretrained("allenai/OLMo-2-0425-1B")
 hf_state = hf_model.state_dict()
 
 def format_hf_keys(hf_state):
-    # Convert the Hugging Face state dict to match the OLMo model's state dict
     formatted_state = {}
-    for key, value in hf_state.items():
+    for hf_key, value in hf_state.items():
+        key = hf_key
+        # remove 'model.' prefix
         if key.startswith("model."):
-            key = key.replace("model.", "")
-        if key.startswith("embed_tokens."):
-            key = key.replace("embed_tokens.", "embeddings.")
-        if key.startswith("layers."):
-            key = key.replace("layers.", "blocks.")
-        if ".self_attn." in key:
-            key = key.replace(".self_attn.", ".attention.")
-        if ".q_proj." in key:
-            key = key.replace(".q_proj.", ".w_q.")
-        if ".k_proj." in key:
-            key = key.replace(".k_proj.", ".w_k.")
-        if ".v_proj." in key:
-            key = key.replace(".v_proj.", ".w_v.")
-        # Map attention output projection
-        if ".attention.o_proj." in key:
-            key = key.replace(".attention.o_proj.", ".attention.w_out.")
-        # Map post-attention layer norm
-        if ".post_attention_layernorm." in key:
-            key = key.replace(".post_attention_layernorm.", ".attention_norm.")
-        # Map post-feedforward layer norm
-        if ".post_feedforward_layernorm." in key:
-            key = key.replace(".post_feedforward_layernorm.", ".feed_forward_norm.")
-        # Map MLP projections to feed_forward
-        if ".mlp.gate_proj." in key:
-            key = key.replace(".mlp.gate_proj.", ".feed_forward.w1.")
-        if ".mlp.up_proj." in key:
-            key = key.replace(".mlp.up_proj.", ".feed_forward.w2.")
-        if ".mlp.down_proj." in key:
-            key = key.replace(".mlp.down_proj.", ".feed_forward.w3.")
-        # Map final layer norms and head weights
-        if key == "norm.weight":
+            key = key[len("model."):]
+
+        # embed tokens
+        if key == "embed_tokens.weight":
+            key = "embeddings.weight"
+        # positional embeddings, if present
+        elif key == "embed_positions.weight":
+            key = "embeddings.position_embeddings.weight"
+
+        # transformer blocks
+        elif key.startswith("layers."):
+            # replace layer prefix
+            parts = key.split(".")
+            layer_idx = parts[1]
+            suffix = ".".join(parts[2:])
+            base_prefix = f"blocks.{layer_idx}."
+
+            # self-attention projections and norms
+            if suffix == "self_attn.q_proj.weight":
+                key = base_prefix + "attention.w_q.weight"
+            elif suffix == "self_attn.k_proj.weight":
+                key = base_prefix + "attention.w_k.weight"
+            elif suffix == "self_attn.v_proj.weight":
+                key = base_prefix + "attention.w_v.weight"
+            elif suffix == "self_attn.o_proj.weight":
+                key = base_prefix + "attention.w_out.weight"
+            elif suffix == "self_attn.q_norm.weight":
+                key = base_prefix + "attention.q_norm.weight"
+            elif suffix == "self_attn.k_norm.weight":
+                key = base_prefix + "attention.k_norm.weight"
+
+            # post-attention layer norm
+            elif suffix == "post_attention_layernorm.weight":
+                key = base_prefix + "attention_norm.weight"
+            # MLP projections
+            elif suffix == "mlp.gate_proj.weight":
+                key = base_prefix + "feed_forward.w1.weight"
+            elif suffix == "mlp.up_proj.weight":
+                key = base_prefix + "feed_forward.w2.weight"
+            elif suffix == "mlp.down_proj.weight":
+                key = base_prefix + "feed_forward.w3.weight"
+            # post-feedforward layer norm
+            elif suffix == "post_feedforward_layernorm.weight":
+                key = base_prefix + "feed_forward_norm.weight"
+            else:
+                # for any other layers.* keys, skip mapping
+                continue
+
+        # final layer norm and head
+        elif key == "norm.weight":
             key = "lm_head.norm.weight"
-        if key.startswith("lm_head.weight"):
-            key = key.replace("lm_head.weight", "lm_head.w_out.weight")
+        elif key == "norm.bias":
+            key = "lm_head.norm.bias"
+        elif key == "lm_head.weight":
+            key = "lm_head.w_out.weight"
+        elif key == "lm_head.bias" or key == "final_logits_bias":
+            key = "lm_head.w_out.bias"
+
+        else:
+            # skip any other keys
+            continue
+
         formatted_state[key] = value
     return formatted_state
 
