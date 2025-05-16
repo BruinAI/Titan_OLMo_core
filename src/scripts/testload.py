@@ -1,7 +1,7 @@
 from olmo_core.distributed.checkpoint import load_state_dict
 from olmo_core.nn.transformer import TransformerConfig
 from olmo_core.data import TokenizerConfig
-from transformers import AutoModel, AutoModelForCausalLM
+from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
 import torch
 
 tokenizer_config = TokenizerConfig.dolma2()
@@ -60,18 +60,44 @@ def format_hf_values(base_state, load_state):
     for key, value in load_state.items():
         if key in base_state:
             # Ensure the shapes match
-            if base_state[key].shape != value.shape:
-                value = value.view(base_state[key].shape)
+            base_shape = base_state[key].shape
+            if base_shape != value.shape:
+                assert base_shape == value.T.shape, f"Shape mismatch for {key}: {base_state[key].shape} vs {value.shape}"
+                value = value.T
             load_state[key] = value.to(base_state[key].dtype)
     return load_state
 
 format_state = format_hf_keys(hf_state)
 format_state = format_hf_values(base_state, format_state)
 
-missing, unexpected = model.load_state_dict(format_state, strict=False)
+missing, unexpected = model.load_state_dict(format_state, strict=True)
 print(f"Missing {len(missing)} keys: {missing}")
 print(f"Unexpected {len(unexpected)} keys: {unexpected}")
 
 # Verifying the model
-sample_text = "Hello, how are you?"
-inputs = tokenizer_config.tokenize(sample_text)
+sample_text = "The capital of France is"
+tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
+inputs = tokenizer(sample_text, return_tensors="pt")
+
+# Manual autoregressive decoding loop
+model.eval()
+input_ids = inputs["input_ids"]
+attention_mask = inputs.get("attention_mask", None)
+max_new_tokens = 50
+generated_ids = input_ids
+
+with torch.no_grad():
+    for _ in range(max_new_tokens):
+        model_inputs = {"input_ids": generated_ids}
+        if attention_mask is not None:
+            model_inputs["attention_mask"] = attention_mask
+        logits = model(**model_inputs)  # [1, seq_len, vocab_size]
+        next_token_logits = logits[:, -1, :]
+        next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+        generated_ids = torch.cat([generated_ids, next_token], dim=-1)
+        if attention_mask is not None:
+            new_mask = torch.ones_like(next_token, dtype=attention_mask.dtype)
+            attention_mask = torch.cat([attention_mask, new_mask], dim=-1)
+
+output_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+print(output_text)
