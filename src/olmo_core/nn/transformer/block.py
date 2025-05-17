@@ -23,7 +23,7 @@ from ..moe import MoEConfig, MoERouter
 from ..moe.parallel_mlp import ParallelMLPBase
 from .config import TransformerDataParallelWrappingStrategy
 
-from titans_pytorch import NeuralMemory, MemoryMLP
+from titans_pytorch import NeuralMemory, MemoryMLP, mem_state_detach
 
 if TYPE_CHECKING:
     from olmo_core.train.common import ReduceType
@@ -244,13 +244,12 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
 
         # MAG (hopefully 🙏)
         qkv_input = torch.stack([attn, attn, attn], dim=0)
-        retrieved, next_state = self.memory(
+        retrieved, next_mem_state = self.memory(
             qkv_input,
             state=self.state,
             prev_weights=None
         )
-        del self.state
-        self.state = next_state
+        self.state = mem_state_detach(next_mem_state)
         attn_with_mem = nn.Sigmoid()(retrieved) * attn
 
         h = x + self.dropout(self.attention_norm(attn_with_mem))

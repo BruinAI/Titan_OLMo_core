@@ -4,7 +4,7 @@ if "olmo_core" not in sys.path:
 
 import torch
 from pathlib import Path
-from olmo_core.distributed.checkpoint import unshard_checkpoint, prune_state_dict
+from olmo_core.distributed.checkpoint import unshard_checkpoint
 from transformers import AutoTokenizer
 from olmo_core.nn.transformer.config import TransformerConfig, TransformerBlockType, MemoryConfig
 from olmo_core.nn.attention import SlidingWindowAttentionConfig
@@ -72,6 +72,7 @@ else:
 
 # Verifying the model
 sample_text = "The capital of France is"
+print(sample_text, end="")
 tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
  # model = hf_model  # to use HF model directly (for sanity check)
 inputs = tokenizer(sample_text, return_tensors="pt")
@@ -84,11 +85,11 @@ if attention_mask is not None:
 
 # Manual autoregressive decoding loop
 model.eval()
-max_new_tokens = 12
+max_new_tokens = 128
 generated_ids = input_ids
 
 with torch.no_grad() and torch.amp.autocast('cuda', enabled=(device.type == "cuda")):
-    for _ in range(max_new_tokens):
+    for i in range(max_new_tokens):
         model_inputs = {"input_ids": generated_ids}
         if attention_mask is not None:
             model_inputs["attention_mask"] = attention_mask
@@ -105,9 +106,12 @@ with torch.no_grad() and torch.amp.autocast('cuda', enabled=(device.type == "cud
         if attention_mask is not None:
             new_mask = torch.ones_like(next_token, dtype=attention_mask.dtype)
             attention_mask = torch.cat([attention_mask, new_mask], dim=-1)
-
-output_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-print(output_text)
+        # Stream each generated token in real time
+        streamed_token = tokenizer.decode([next_token.item()], skip_special_tokens=True)
+        print(streamed_token, end='', flush=True)
+print()
+# output_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+# print(output_text)
 """
 The capital of France is Paris. The French language is spoken in France. The French people are known as the French. The
 French flag is red with a white cross on a blue background. The French flag is the same as the flag of the United States.
