@@ -940,7 +940,9 @@ class TransformerConfig(Config):
             feed_forward = FeedForwardConfig(hidden_size=hidden_size, bias=False, dtype=dtype)
 
         # Configure blocks.
-        memory_config = kwargs.pop("memory_config", MemoryConfig())
+        transformer_block_kwargs = {}
+        if block_name == TransformerBlockType.mag_reordered_norm:
+            transformer_block_kwargs["memory_config"] = kwargs.pop("memory_config", MemoryConfig())
         block = TransformerBlockConfig(
             name=block_name,
             attention=AttentionConfig(
@@ -957,7 +959,7 @@ class TransformerConfig(Config):
             feed_forward=feed_forward,
             feed_forward_moe=feed_forward_moe,
             layer_norm=layer_norm,
-            memory_config=memory_config,
+            **transformer_block_kwargs,
         )
 
         return cls(

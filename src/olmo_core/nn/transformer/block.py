@@ -214,8 +214,9 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
     def __init__(self, **kwargs):
         assert "memory_config" in kwargs, "MAGReorderedNormTransformerBlock requires memory_config"
         memory_config = kwargs.pop("memory_config")
+        super().__init__(**kwargs)
         self.memory = NeuralMemory(
-            dim=memory_config.hidden_size,
+            dim=kwargs.get("d_model"),
             chunk_size=memory_config.neural_memory_segment_len,
             qkv_receives_diff_views=memory_config.neural_memory_qkv_receives_diff_views,
             dim_head=memory_config.dim_head,
@@ -224,13 +225,12 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             qk_rmsnorm=True,
             accept_weight_residual=False,
             model=MemoryMLP(
-                dim=self.memory_config.dim_head,
-                depth=self.memory_config.memory_depth,
+                dim=memory_config.dim_head,
+                depth=memory_config.memory_depth,
                 expansion_factor=2.0
             )
         )
         self.state = None
-        super().__init__(**kwargs)
 
     def forward(
         self,
