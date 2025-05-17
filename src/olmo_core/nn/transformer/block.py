@@ -23,6 +23,8 @@ from ..moe import MoEConfig, MoERouter
 from ..moe.parallel_mlp import ParallelMLPBase
 from .config import TransformerDataParallelWrappingStrategy
 
+from titans_pytorch import NeuralMemory, MemoryMLP
+
 if TYPE_CHECKING:
     from olmo_core.train.common import ReduceType
 
@@ -200,6 +202,57 @@ class ReorderedNormTransformerBlock(TransformerBlock):
     ) -> torch.Tensor:
         del loss_div_factor
         h = x + self.dropout(self.attention_norm(self.attention(x, **kwargs)))
+        return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
+
+
+class MAGReorderedNormTransformerBlock(TransformerBlock):
+    """
+    Like :class:`ReorderedNormTransformerBlock` except that the neural memory as a gate is augmented to it
+    Have its own unique memory state
+    """
+
+    def __init__(self, **kwargs):
+        assert "memory_config" in kwargs, "MAGReorderedNormTransformerBlock requires memory_config"
+        memory_config = kwargs.pop("memory_config")
+        self.memory = NeuralMemory(
+            dim=memory_config.hidden_size,
+            chunk_size=memory_config.neural_memory_segment_len,
+            qkv_receives_diff_views=memory_config.neural_memory_qkv_receives_diff_views,
+            dim_head=memory_config.dim_head,
+            heads=memory_config.heads,
+            momentum=True,
+            qk_rmsnorm=True,
+            accept_weight_residual=False,
+            model=MemoryMLP(
+                dim=self.memory_config.dim_head,
+                depth=self.memory_config.memory_depth,
+                expansion_factor=2.0
+            )
+        )
+        self.state = None
+        super().__init__(**kwargs)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        *,
+        loss_div_factor: Optional[Union[torch.Tensor, float]] = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        del loss_div_factor
+        attn = self.attention(x, **kwargs)
+
+        # MAG (hopefully 🙏)
+        qkv_input = torch.stack([attn, attn, attn], dim=0)
+        retrieved, next_state = self.memory(
+            qkv_input,
+            state=self.state,
+            prev_weights=None
+        )
+        self.state = next_state
+        attn_with_mem = nn.Sigmoid()(retrieved) * attn
+
+        h = x + self.dropout(self.attention_norm(attn_with_mem))
         return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
 
 

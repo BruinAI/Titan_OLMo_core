@@ -4,7 +4,7 @@ if "olmo_core" not in sys.path:
 
 import torch
 from transformers import AutoTokenizer
-from olmo_core.nn.transformer.config import TransformerConfig
+from olmo_core.nn.transformer.config import TransformerConfig, TransformerBlockType, MemoryConfig
 from olmo_core.nn.attention import SlidingWindowAttentionConfig
 from olmo_core.distributed.checkpoint import load_model_and_optim_state
 from olmo_core.data.tokenizer import TokenizerConfig
@@ -23,8 +23,25 @@ python src/examples/huggingface/convert_checkpoint_from_hf.py \
 # Rebuilding the same Transformer architecture:
 tok_cfg = TokenizerConfig.dolma2()
 sliding_window_config = SlidingWindowAttentionConfig(pattern=[True], window_size=32)
-model_cfg = TransformerConfig.olmo2_1B(tok_cfg.padded_vocab_size(), sliding_window=sliding_window_config, use_flash=True)
-model: torch.nn.Module = model_cfg.build().eval()
+"""
+Current Kwargs flow (assuming it doesn't match a specific kwarg for each class along the way)
+- olmo2_1B -> llama2_1B -> llama_like -> AttentionConfig -> Attention
+        - Optional Flow 1: llama_like -> TransformerConfigBlock -> ReorderedNormTransformerBlock
+        - Optional Flow 2: llama_like -> TransformerConfig -> Transformer
+- This is needed to get the kwargs for the sliding window attention to flow through properly
+Question: should kwargs for Neural Memory go through TransformerConfigBlockConfig or TransformerConfig instead?
+1. MAG goes right after attention
+    a. TransformerBlock's forward has everything we need for MAG: both the input and output of attn
+    b. Make our own TransformerBlock modified with MAG
+"""
+
+model_cfg = TransformerConfig.olmo2_1B(
+    vocab_size=tok_cfg.padded_vocab_size(),
+    # sliding_window=sliding_window_config, use_flash=True,
+    block_name=TransformerBlockType.mag_reordered_norm,
+    memory_config=MemoryConfig(),
+)
+model: torch.nn.Module = model_cfg.build()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 
@@ -32,7 +49,7 @@ model = model.to(device)
 load_model_and_optim_state(
     "../../converted/olmo2_1b/model_and_optim",
     model,
-    optim=None,       # you can pass a real optimizer here, or None if you just care about weights
+    optim=None,  # you can pass a real optimizer here, or None if you just care about weights
 )
 
 

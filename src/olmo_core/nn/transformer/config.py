@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
 
 from olmo_core.config import Config, DType, StrEnum
 from olmo_core.doc_utils import beta_feature
@@ -97,6 +97,11 @@ class TransformerBlockType(StrEnum):
     ➡️ :class:`ReorderedNormTransformerBlock`
     """
 
+    mag_reordered_norm = "mag_reordered_norm"
+    """
+    ➡️ :class:`MAGReorderedNormTransformerBlock`
+    """
+
     normalized = "normalized"
     """
     ➡️ :class:`NormalizedTransformerBlock`
@@ -121,6 +126,29 @@ class TransformerBlockType(StrEnum):
     """
     ➡️ :class:`MoEHybridReorderedNormTransformerBlock`
     """
+
+
+@dataclass
+class MemoryConfig:
+    """Configuration class for memory components in the model."""
+    # Memory dimensions
+    # hidden_size: int
+    segment_len: int = 128
+    num_longterm_mem_tokens: int = 4
+    num_persist_mem_tokens: int = 4
+
+    # Neural memory configuration
+    neural_memory_layers: Tuple[int, ...] = (2, 4, 6, 8, 10)
+    neural_memory_segment_len: Optional[int] = None
+    neural_mem_gate_attn_output: bool = False
+    neural_memory_add_value_residual: bool = False
+    neural_memory_qkv_receives_diff_views: bool = True
+    neural_mem_weight_residual: bool = False  # Changed to False
+
+    # Neural memory architecture
+    dim_head: int = 64
+    heads: int = 8
+    memory_depth: int = 2
 
 
 @dataclass
@@ -153,6 +181,7 @@ class TransformerBlockConfig(Config):
     """
     Dropout probability.
     """
+    memory_config: Optional[MemoryConfig] = None
 
     def build(
         self,
@@ -170,6 +199,7 @@ class TransformerBlockConfig(Config):
             MoETransformerBlock,
             NormalizedTransformerBlock,
             ReorderedNormTransformerBlock,
+            MAGReorderedNormTransformerBlock,
             TransformerBlock,
         )
 
@@ -188,6 +218,8 @@ class TransformerBlockConfig(Config):
                 return TransformerBlock(**kwargs)
             elif self.name == TransformerBlockType.reordered_norm:
                 return ReorderedNormTransformerBlock(**kwargs)
+            elif self.name == TransformerBlockType.mag_reordered_norm:
+                return MAGReorderedNormTransformerBlock(**kwargs)
             elif self.name == TransformerBlockType.normalized:
                 return NormalizedTransformerBlock(**kwargs)
             elif self.name == TransformerBlockType.moe:
@@ -908,6 +940,7 @@ class TransformerConfig(Config):
             feed_forward = FeedForwardConfig(hidden_size=hidden_size, bias=False, dtype=dtype)
 
         # Configure blocks.
+        memory_config = kwargs.pop("memory_config", MemoryConfig())
         block = TransformerBlockConfig(
             name=block_name,
             attention=AttentionConfig(
@@ -924,6 +957,7 @@ class TransformerConfig(Config):
             feed_forward=feed_forward,
             feed_forward_moe=feed_forward_moe,
             layer_norm=layer_norm,
+            memory_config=memory_config,
         )
 
         return cls(
