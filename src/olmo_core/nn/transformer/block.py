@@ -201,9 +201,13 @@ class ReorderedNormTransformerBlock(TransformerBlock):
         **kwargs,
     ) -> torch.Tensor:
         del loss_div_factor
-        h = x + self.dropout(self.attention_norm(self.attention(x, **kwargs)))
+        attn = self.attention(x, **kwargs)
+        #print(attn.shape)
+        h = x + self.dropout(self.attention_norm(attn))
         return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
 
+import torch.profiler
+from torch.profiler import profile, record_function, ProfilerActivity
 
 class MAGReorderedNormTransformerBlock(TransformerBlock):
     """
@@ -214,23 +218,29 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
     def __init__(self, **kwargs):
         assert "memory_config" in kwargs, "MAGReorderedNormTransformerBlock requires memory_config"
         memory_config = kwargs.pop("memory_config")
+        layer_idx = kwargs.get("block_idx")
         super().__init__(**kwargs)
-        self.memory = NeuralMemory(
-            dim=kwargs.get("d_model"),
-            chunk_size=memory_config.neural_memory_chunk_size,
-            qkv_receives_diff_views=memory_config.neural_memory_qkv_receives_diff_views,
-            dim_head=memory_config.dim_head,
-            heads=memory_config.heads,
-            momentum=True,
-            qk_rmsnorm=True,
-            accept_weight_residual=False,
-            model=MemoryMLP(
-                dim=memory_config.dim_head,
-                depth=memory_config.memory_depth,
-                expansion_factor=2.0
+        memory_enabled = (layer_idx==1)
+        self.memory = None
+        if memory_enabled:
+            self.memory = NeuralMemory(
+                dim=kwargs.get("d_model"),
+                chunk_size=memory_config.neural_memory_chunk_size,
+                qkv_receives_diff_views=memory_config.neural_memory_qkv_receives_diff_views,
+                dim_head=None,
+                heads=memory_config.heads,
+                momentum=True,
+                qk_rmsnorm=True,
+                accept_weight_residual=False,
+                model=MemoryMLP(
+                    dim=kwargs.get("d_model"),
+                    depth=memory_config.memory_depth,
+                    expansion_factor=2.0
+                )
             )
-        )
-        self.state = None
+            print(f"Model size: {sum(p.numel() for p in self.memory.memory_model.parameters() if p.requires_grad) * 4 / (1024 ** 2):.2f} MB")
+
+            self.state = None
 
     def forward(
         self,
@@ -241,16 +251,49 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
     ) -> torch.Tensor:
         del loss_div_factor
         attn = self.attention(x, **kwargs)
+        attn_with_mem = attn
 
-        # MAG (hopefully 🙏)
-        qkv_input = torch.stack([attn, attn, attn], dim=0)
-        retrieved, next_mem_state = self.memory(
-            qkv_input,
-            state=self.state,
-            prev_weights=None
-        )
-        self.state = mem_state_detach(next_mem_state)
-        attn_with_mem = nn.Sigmoid()(retrieved) * attn
+        # Add profiling around memory operations
+        if self.memory:
+            # Wrap the entire memory operation in profiler
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                profile_memory=True,
+                record_shapes=True,
+                with_stack=True,
+                with_flops=True
+            ) as prof:
+                # Profile the stack operation separately
+                with record_function("stack_qkv_input"):
+                    qkv_input = torch.stack([attn, attn, attn], dim=0)
+                
+                # Profile the main memory operation
+                with record_function("neural_memory_forward"):
+                    retrieved, next_mem_state = self.memory(
+                        qkv_input,
+                        state=self.state,
+                        prev_weights=None
+                    )
+                
+                # Profile state detach operation
+                with record_function("state_detach"):
+                    self.state = mem_state_detach(next_mem_state)
+                
+                # Profile memory gating application
+                with record_function("apply_memory_gate"):
+                    attn_with_mem = nn.Sigmoid()(retrieved) * attn
+            
+            # Print profiling results
+            print("===== MEMORY PROFILING RESULTS =====")
+            print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=20))
+            
+            # Get detailed memory stats for assoc_scan specifically
+            for event in prof.key_averages():
+                if "assoc_scan" in event.key:
+                    print(f"\nDetailed stats for {event.key}:")
+                    print(f"Self CUDA memory usage: {event.self_cuda_memory_usage/1024**2:.2f} MB")
+                    print(f"Self CUDA max memory usage: {event.self_cuda_max_memory_usage/1024**2:.2f} MB")
+                    print(f"CUDA time: {event.cuda_time_total/1000:.2f} ms")
 
         h = x + self.dropout(self.attention_norm(attn_with_mem))
         return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
