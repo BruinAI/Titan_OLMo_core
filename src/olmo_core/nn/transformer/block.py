@@ -217,7 +217,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         super().__init__(**kwargs)
         self.memory = NeuralMemory(
             dim=kwargs.get("d_model"),
-            chunk_size=memory_config.neural_memory_segment_len,
+            chunk_size=memory_config.neural_memory_chunk_size,
             qkv_receives_diff_views=memory_config.neural_memory_qkv_receives_diff_views,
             dim_head=memory_config.dim_head,
             heads=memory_config.heads,
@@ -249,6 +249,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             state=self.state,
             prev_weights=None
         )
+        del self.state
         self.state = next_state
         attn_with_mem = nn.Sigmoid()(retrieved) * attn
 

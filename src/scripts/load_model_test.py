@@ -34,19 +34,20 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
     b. Make our own TransformerBlock modified with MAG
 """
 
-# Rebuilding the same Transformer architecture:
-tok_cfg = TokenizerConfig.dolma2()
-sliding_window_config = SlidingWindowAttentionConfig(pattern=[True], window_size=32)
 USE_MAG = True
+USE_SW = True
+
+# Rebuilding the same Transformer architecture:
 kwargs = {}
 if USE_MAG:
     kwargs["block_name"] = TransformerBlockType.mag_reordered_norm
     kwargs["memory_config"] = MemoryConfig()
-model_cfg = TransformerConfig.olmo2_1B(
-    vocab_size=tok_cfg.padded_vocab_size(),
-    # sliding_window=sliding_window_config, use_flash=True,
-    **kwargs
-)
+if USE_SW:
+    kwargs["sliding_window"] = SlidingWindowAttentionConfig(pattern=[True], window_size=32)
+    kwargs["use_flash"] = True
+
+tok_cfg = TokenizerConfig.dolma2()
+model_cfg = TransformerConfig.olmo2_1B(vocab_size=tok_cfg.padded_vocab_size(), **kwargs)
 model: torch.nn.Module = model_cfg.build()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
@@ -83,7 +84,7 @@ if attention_mask is not None:
 
 # Manual autoregressive decoding loop
 model.eval()
-max_new_tokens = 128
+max_new_tokens = 12
 generated_ids = input_ids
 
 with torch.no_grad() and torch.amp.autocast('cuda', enabled=(device.type == "cuda")):
