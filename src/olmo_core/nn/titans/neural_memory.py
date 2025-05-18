@@ -62,15 +62,18 @@ class NeuralMemory(nn.Module):
         keys = normalize(self.silu(self.K(z)))
         vals = self.silu(self.V(z))
 
-        # Propagate the keys through the model
-        for layer in self.layers:
-            keys = layer(keys)
+        with torch.enable_grad():  # Enable gradients for this specific block
+            # Propagate the keys through the model
+            for layer in self.layers:
+                keys = layer(keys)
 
-        # Calculate the loss || M(keys) - vals ||_2 ^2
-        loss = ((keys - vals) ** 2).mean(axis=0).sum()
+            # Calculate the loss || M(keys) - vals ||_2 ^2
+            loss = ((keys - vals) ** 2).mean(axis=0).sum()
 
-        # Compute gradients of aux loss w.r.t. NMM's parameters
-        grads = torch.autograd.grad(loss, self.parameters())  # type: ignore
+            # Compute gradients of aux loss w.r.t. NMM's parameters
+            # Ensure parameters of NeuralMemory (self.K, self.V, self.layers) have requires_grad=True
+            grads = torch.autograd.grad(loss, self.layers.parameters())  # type: ignore
+
         # Update the surprise dictionary and the parameters of the network
         updated_params = {}
 

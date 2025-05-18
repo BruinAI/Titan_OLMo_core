@@ -131,24 +131,13 @@ class TransformerBlockType(StrEnum):
 @dataclass
 class MemoryConfig:
     """Configuration class for memory components in the model."""
-    # Token Configs: none of this block is currently used
-    segment_len: int = 128
-    num_longterm_mem_tokens: int = 4
-    num_persist_mem_tokens: int = 4
-
-    # Neural memory configuration
-    neural_memory_layers: Tuple[int, ...] = (2, 4, 6, 8, 10)
-    neural_memory_chunk_size: int | tuple[int, int] = 1
-    neural_memory_batch_size: Optional[int] = 16  # must be divisible by chunk_size batch % chunk == 0
-    neural_mem_gate_attn_output: bool = False
-    neural_memory_add_value_residual: bool = False
-    neural_memory_qkv_receives_diff_views: bool = True
-    neural_mem_weight_residual: bool = False  # TODO: test True
-
-    # Neural memory architecture
-    heads: int = 8
-    dim_head: int = 64
-    # memory_depth: int = 2
+    persistent_mem_len = 4
+    context_window = 16
+    n_layers = 2
+    hidden_dim_multiple = 2
+    alpha = 0.999
+    eta = 0.60
+    theta = 0.05
 
 
 @dataclass

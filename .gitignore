@@ -35,7 +35,6 @@ doc/_build/
 
 
 # python
-
 *.pyc
 *.pyo
 __pycache__
@@ -58,3 +57,8 @@ site/
 /scratch/
 core
 /dataset-cache/
+
+# local config and models
+converted/
+venv/
+tmp_unshard/

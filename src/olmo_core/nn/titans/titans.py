@@ -81,61 +81,78 @@ class MACTitan(nn.Module):
 
     def __init__(
         self,
-        input_dim,
-        hidden_dim,
-        output_dim,
-        context_window,
-        pm_len,
-        n_layers = 2,
-        n_layers_nmm = 2,
-        alpha = 0.999,
-        eta = 0.8,
-        theta = 0.3
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int,
+        context_window: int,
+        pm_len: int,
+        n_layers: int = 2,
+        n_layers_nmm: int = 2,
+        alpha: float = 0.999,
+        eta: float = 0.8,
+        theta: float = 0.3
     ):
         super().__init__()
 
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
-        self.context_window = context_window
+        self.context_window = context_window # The length of the sequence processed at each step by a single MACTitanLayer
 
+        # Embedding layer to project input to hidden dimension
         self.emb_layer = nn.Linear(input_dim, hidden_dim)
 
+        # Stack of MACTitanLayers
         self.layers = nn.ModuleList([
             MACTitanLayer(
-                hidden_dim,
-                context_window,
-                pm_len,
+                hidden_dim=hidden_dim,
+                seq_len=context_window,
+                pm_len=pm_len,
                 n_layers_nmm=n_layers_nmm,
-                alpha = alpha,
-                eta = eta,
-                theta = theta
+                alpha=alpha,
+                eta=eta,
+                theta=theta
             )
             for _ in range(n_layers)
         ])
 
+        # Final layer to project hidden state to output dimension
         self.final_layer = nn.Linear(hidden_dim * context_window, output_dim)
 
         self.silu = nn.SiLU()
 
+        # Collect all parameters that are not part of the Neural Memory Module (NMM)
+        # These are considered "outer" parameters and are optimized by the main optimizer.
+        # NMM parameters are updated internally by the NMM's update rule.
         self.outer_params = list(self.emb_layer.parameters()) + list(self.final_layer.parameters())
         for layer in self.layers:
             self.outer_params += layer.outer_params  # type: ignore
 
-    # Simple taking an input of shape (batch_size, context_len, input_dim)
-    # and returns (batch_size, output_dim)
-    def process(self, x):
+    def process(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Processes a single window of input data.
 
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, context_window, input_dim).
+
+        Returns:
+            torch.Tensor: Output tensor of shape (batch_size, output_dim).
+        """
         batch_size = x.shape[0]
 
-        # Pass x through the embedding layer to get (batch_size, context_len, hidden_dim)
-        x = self.emb_layer(x.reshape(-1, self.input_dim)).view(batch_size, self.context_window, self.hidden_dim)
+        # Embed the input: (batch_size, context_window, input_dim) -> (batch_size, context_window, hidden_dim)
+        # Reshape to (-1, input_dim) for linear layer, then back to (batch_size, context_window, hidden_dim)
+        embedded_x = self.emb_layer(x.reshape(-1, self.input_dim)).view(batch_size, self.context_window, self.hidden_dim)
 
-        # Pass x thorugh all the MACTitanLayer's
+        # Pass through the stack of MACTitanLayers with residual connections
+        processed_x = embedded_x
         for layer in self.layers:
-            x = x + self.silu(layer(x))
+            processed_x = processed_x + self.silu(layer(processed_x)) # Apply SiLU to the output of the layer before adding residual
 
-        return self.final_layer(x.view(batch_size, -1))
+        # Reshape for the final layer: (batch_size, context_window, hidden_dim) -> (batch_size, context_window * hidden_dim)
+        # Then project to output dimension: (batch_size, context_window * hidden_dim) -> (batch_size, output_dim)
+        output = self.final_layer(processed_x.view(batch_size, -1))
+        return output
 
 
     def forward(self, x):

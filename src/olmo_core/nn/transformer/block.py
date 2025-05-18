@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union, cast
 
 import torch
 import torch.nn as nn
+from torch.func import functional_call
 from torch.distributed import DeviceMesh
 from torch.distributed.fsdp import FSDPModule, fully_shard
 from torch.distributed.tensor import Placement, Shard
@@ -21,9 +22,9 @@ from ..functional import l2_normalize
 from ..layer_norm import LayerNormConfig
 from ..moe import MoEConfig, MoERouter
 from ..moe.parallel_mlp import ParallelMLPBase
+from ..titans.neural_memory import NeuralMemory
 from .config import TransformerDataParallelWrappingStrategy
 
-from titans_pytorch import NeuralMemory, MemoryMLP, mem_state_detach
 
 if TYPE_CHECKING:
     from olmo_core.train.common import ReduceType
@@ -215,23 +216,18 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         assert "memory_config" in kwargs, "MAGReorderedNormTransformerBlock requires memory_config"
         self.memory_config = kwargs.pop("memory_config")
         super().__init__(**kwargs)
+        d_model = kwargs.get("d_model", None)
+        assert d_model is not None and isinstance(d_model, int) and d_model > 0, "d_model must be a kwarg of type int and > 0"
+        self.context_window = self.memory_config.context_window
         self.memory = NeuralMemory(
-            dim=kwargs.get("d_model"),
-            chunk_size=self.memory_config.neural_memory_chunk_size,
-            batch_size=self.memory_config.neural_memory_batch_size,
-            qkv_receives_diff_views=self.memory_config.neural_memory_qkv_receives_diff_views,
-            dim_head=self.memory_config.dim_head,
-            heads=self.memory_config.heads,
-            momentum=True,
-            qk_rmsnorm=False,
-            accept_weight_residual=self.memory_config.neural_memory_add_value_residual
-            # model=MemoryMLP(
-            #     dim=self.memory_config.dim_head,
-            #     depth=self.memory_config.memory_depth,
-            #     expansion_factor=2.0
-            # )
+            emb_dim=d_model,
+            n_layers=self.memory_config.n_layers,
+            hidden_dim=self.memory_config.hidden_dim_multiple * d_model,
         )
-        self.state = None
+        self.Q = nn.Linear(d_model, d_model)
+        # self.persistent_memory = nn.Parameter(
+        #     torch.randn(self.memory_config.persistent_mem_len, d_model)
+        # )
 
     def forward(
         self,
@@ -241,22 +237,15 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         **kwargs,
     ) -> torch.Tensor:
         del loss_div_factor
-        attn = self.attention(x, **kwargs)
+        device = x.device
 
-        # MAG (hopefully 🙏)
-        prev_weights = None
-        if self.memory_config.neural_mem_weight_residual:
-            if self.state is not None and hasattr(self.state, 'updates'):
-                prev_weights = self.state.updates
-        
-        qkv_input = torch.stack([attn, attn, attn], dim=0)
-        retrieved, next_mem_state = self.memory(
-            qkv_input,
-            state=self.state,
-            prev_weights=prev_weights
-        )
-        self.state = mem_state_detach(next_mem_state)
-        attn_with_mem = nn.Sigmoid()(retrieved) * attn
+        attn = self.attention(x, **kwargs)
+        last_attn = attn[:, -1, :].unsqueeze(1)
+        _loss, new_params = self.memory.update(last_attn)
+
+        gate = functional_call(self.memory, new_params, self.Q(attn))
+
+        attn_with_mem = nn.Sigmoid()(gate) * attn
 
         h = x + self.dropout(self.attention_norm(attn_with_mem))
         return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))

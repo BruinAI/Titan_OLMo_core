@@ -1,6 +1,9 @@
 import sys
+import os
 if "olmo_core" not in sys.path:
     sys.path.append("..")
+if not os.getcwd().endswith("src/scripts"):  # for VS Code debugging
+    os.chdir("src/scripts")
 
 import torch
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -35,15 +38,16 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
     b. Make our own TransformerBlock modified with MAG
 """
 
-USE_MAG = False
+USE_MAG = True
 USE_SW = False
+MAX_TOKENS = 16
 PROFILE_MEM = False
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}
 if USE_MAG:
     kwargs["block_name"] = TransformerBlockType.mag_reordered_norm
-    kwargs["memory_config"] = MemoryConfig(neural_memory_chunk_size=1)
+    kwargs["memory_config"] = MemoryConfig()
 if USE_SW:
     kwargs["sliding_window"] = SlidingWindowAttentionConfig(pattern=[True], window_size=32)
     kwargs["use_flash"] = True
@@ -88,13 +92,12 @@ if attention_mask is not None:
 
 # Manual autoregressive decoding loop
 model.eval()
-max_new_tokens = 16
 generated_ids = input_ids
 
 profiler = [ProfilerActivity.CPU, ProfilerActivity.CUDA] if is_cuda else[ProfilerActivity.CPU]
 with profile(activities=profiler, profile_memory=True, record_shapes=True) as prof:
     with torch.no_grad(), torch.amp.autocast('cuda', enabled=is_cuda):
-        for i in range(max_new_tokens):
+        for i in range(MAX_TOKENS):
             model_inputs = {"input_ids": generated_ids}
             if attention_mask is not None:
                 model_inputs["attention_mask"] = attention_mask

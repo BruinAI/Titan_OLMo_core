@@ -23,7 +23,6 @@ dependencies = [
     "safetensors",
     "importlib_resources",
     "ai2-olmo-eval==0.7.1",
-    "titans-pytorch==0.4.7",
 ]
 
 [project.urls]
