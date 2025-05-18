@@ -213,22 +213,23 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
 
     def __init__(self, **kwargs):
         assert "memory_config" in kwargs, "MAGReorderedNormTransformerBlock requires memory_config"
-        memory_config = kwargs.pop("memory_config")
+        self.memory_config = kwargs.pop("memory_config")
         super().__init__(**kwargs)
         self.memory = NeuralMemory(
             dim=kwargs.get("d_model"),
-            chunk_size=memory_config.neural_memory_chunk_size,
-            qkv_receives_diff_views=memory_config.neural_memory_qkv_receives_diff_views,
-            dim_head=memory_config.dim_head,
-            heads=memory_config.heads,
+            chunk_size=self.memory_config.neural_memory_chunk_size,
+            batch_size=self.memory_config.neural_memory_batch_size,
+            qkv_receives_diff_views=self.memory_config.neural_memory_qkv_receives_diff_views,
+            dim_head=self.memory_config.dim_head,
+            heads=self.memory_config.heads,
             momentum=True,
-            qk_rmsnorm=True,
-            accept_weight_residual=False,
-            model=MemoryMLP(
-                dim=memory_config.dim_head,
-                depth=memory_config.memory_depth,
-                expansion_factor=2.0
-            )
+            qk_rmsnorm=False,
+            accept_weight_residual=self.memory_config.neural_memory_add_value_residual
+            # model=MemoryMLP(
+            #     dim=self.memory_config.dim_head,
+            #     depth=self.memory_config.memory_depth,
+            #     expansion_factor=2.0
+            # )
         )
         self.state = None
 
@@ -243,11 +244,16 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         attn = self.attention(x, **kwargs)
 
         # MAG (hopefully 🙏)
+        prev_weights = None
+        if self.memory_config.neural_mem_weight_residual:
+            if self.state is not None and hasattr(self.state, 'updates'):
+                prev_weights = self.state.updates
+        
         qkv_input = torch.stack([attn, attn, attn], dim=0)
         retrieved, next_mem_state = self.memory(
             qkv_input,
             state=self.state,
-            prev_weights=None
+            prev_weights=prev_weights
         )
         self.state = mem_state_detach(next_mem_state)
         attn_with_mem = nn.Sigmoid()(retrieved) * attn

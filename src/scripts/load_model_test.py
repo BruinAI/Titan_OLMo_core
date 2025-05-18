@@ -3,6 +3,7 @@ if "olmo_core" not in sys.path:
     sys.path.append("..")
 
 import torch
+from torch.profiler import profile, record_function, ProfilerActivity
 from pathlib import Path
 from olmo_core.distributed.checkpoint import unshard_checkpoint
 from transformers import AutoTokenizer
@@ -34,14 +35,15 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
     b. Make our own TransformerBlock modified with MAG
 """
 
-USE_MAG = True
-USE_SW = True
+USE_MAG = False
+USE_SW = False
+PROFILE_MEM = False
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}
 if USE_MAG:
     kwargs["block_name"] = TransformerBlockType.mag_reordered_norm
-    kwargs["memory_config"] = MemoryConfig()
+    kwargs["memory_config"] = MemoryConfig(neural_memory_chunk_size=1)
 if USE_SW:
     kwargs["sliding_window"] = SlidingWindowAttentionConfig(pattern=[True], window_size=32)
     kwargs["use_flash"] = True
@@ -50,6 +52,7 @@ tok_cfg = TokenizerConfig.dolma2()
 model_cfg = TransformerConfig.olmo2_1B(vocab_size=tok_cfg.padded_vocab_size(), **kwargs)
 model: torch.nn.Module = model_cfg.build()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+is_cuda = device.type == "cuda"
 model = model.to(device)
 
 if USE_MAG:
@@ -85,31 +88,38 @@ if attention_mask is not None:
 
 # Manual autoregressive decoding loop
 model.eval()
-max_new_tokens = 128
+max_new_tokens = 16
 generated_ids = input_ids
 
-with torch.no_grad() and torch.amp.autocast('cuda', enabled=(device.type == "cuda")):
-    for i in range(max_new_tokens):
-        model_inputs = {"input_ids": generated_ids}
-        if attention_mask is not None:
-            model_inputs["attention_mask"] = attention_mask
+profiler = [ProfilerActivity.CPU, ProfilerActivity.CUDA] if is_cuda else[ProfilerActivity.CPU]
+with profile(activities=profiler, profile_memory=True, record_shapes=True) as prof:
+    with torch.no_grad(), torch.amp.autocast('cuda', enabled=is_cuda):
+        for i in range(max_new_tokens):
+            model_inputs = {"input_ids": generated_ids}
+            if attention_mask is not None:
+                model_inputs["attention_mask"] = attention_mask
 
-        # Use HF model output and extract logits
-        logits = model(**model_inputs)  # [1, seq_len, vocab_size]
-        # outputs = hf_model(**model_inputs)
-        # logits = outputs.logits
-        next_token_logits = logits[:, -1, :]
-        next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-        if next_token.item() == tokenizer.eos_token_id:
-            break
-        generated_ids = torch.cat([generated_ids, next_token], dim=-1)
-        if attention_mask is not None:
-            new_mask = torch.ones_like(next_token, dtype=attention_mask.dtype)
-            attention_mask = torch.cat([attention_mask, new_mask], dim=-1)
-        # Stream each generated token in real time
-        streamed_token = tokenizer.decode([next_token.item()], skip_special_tokens=True)
-        print(streamed_token, end='', flush=True)
-print()
+            # Use HF model output and extract logits
+            logits = model(**model_inputs)  # [1, seq_len, vocab_size]
+            # outputs = hf_model(**model_inputs)
+            # logits = outputs.logits
+            next_token_logits = logits[:, -1, :]
+            next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+            if next_token.item() == tokenizer.eos_token_id:
+                break
+            generated_ids = torch.cat([generated_ids, next_token], dim=-1)
+            if attention_mask is not None:
+                new_mask = torch.ones_like(next_token, dtype=attention_mask.dtype)
+                attention_mask = torch.cat([attention_mask, new_mask], dim=-1)
+            # Stream each generated token in real time
+            streamed_token = tokenizer.decode([next_token.item()], skip_special_tokens=True)
+            print(streamed_token, end='', flush=True)
+print("[Max Tokens Reached]")
+if PROFILE_MEM:
+    key = "self_cuda_memory_usage" if is_cuda else "self_cpu_memory_usage"
+    print(prof.key_averages().table(sort_by=key, row_limit=10))
+    print()
+
 # output_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
 # print(output_text)
 """
