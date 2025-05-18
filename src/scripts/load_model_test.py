@@ -35,7 +35,8 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 """
 
 USE_MAG = True
-USE_SW = True
+USE_SW = False
+max_new_tokens = 1
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}
@@ -85,7 +86,6 @@ if attention_mask is not None:
 
 # Manual autoregressive decoding loop
 model.eval()
-max_new_tokens = 128
 generated_ids = input_ids
 
 with torch.no_grad() and torch.amp.autocast('cuda', enabled=(device.type == "cuda")):

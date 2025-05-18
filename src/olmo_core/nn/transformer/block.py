@@ -186,12 +186,19 @@ class TransformerBlock(TransformerBlockBase):
             fully_shard(self, mesh=dp_mesh, **fsdp_kwargs)
 
 
+import torch.profiler
+from torch.profiler import profile, record_function, ProfilerActivity
+
+
 class ReorderedNormTransformerBlock(TransformerBlock):
     """
     Like :class:`TransformerBlock` except that the attention norm is applied on the output
     of attention instead of the input, and likewise the feed-forward norm is applied on the output
     of the feed-forward instead of the input.
     """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.profile = kwargs.get("block_idx") == 1
 
     def forward(
         self,
@@ -201,13 +208,41 @@ class ReorderedNormTransformerBlock(TransformerBlock):
         **kwargs,
     ) -> torch.Tensor:
         del loss_div_factor
-        attn = self.attention(x, **kwargs)
-        #print(attn.shape)
-        h = x + self.dropout(self.attention_norm(attn))
-        return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
+        profiler = [ProfilerActivity.CPU, ProfilerActivity.CUDA] if torch.cuda.is_available() else [ProfilerActivity.CPU]
+        with profile(
+            activities=profiler,
+            profile_memory=True,
+            record_shapes=True,
+            with_stack=True,
+            with_flops=True
+        ) as prof:
+            # Profile the attention operation
+            with record_function("attention_forward"):
+                attn = self.attention(x, **kwargs)
 
-import torch.profiler
-from torch.profiler import profile, record_function, ProfilerActivity
+            with record_function("feed_forward"):
+                h = x + self.dropout(self.attention_norm(attn))
+                output = h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
+
+        if not self.profile:
+            return output
+        # Print profiling results
+        print("===== MEMORY PROFILING RESULTS =====")
+        key = "self_cuda_memory_usage" if torch.cuda.is_available() else "cpu_memory_usage"
+        print(prof.key_averages().table(sort_by=key, row_limit=20))
+
+        # Get detailed memory stats for assoc_scan specifically
+        for event in prof.key_averages():
+            if "assoc_scan" in event.key:
+                print(f"\nDetailed stats for {event.key}:")
+                print(f"Self CPU memory usage: {event.self_cpu_memory_usage/1024**2:.2f} MB")
+                print(f"Self CPU max memory usage: {event.self_cpu_max_memory_usage/1024**2:.2f} MB")
+                print(f"Self CPU time total: {event.self_cpu_time_total/1000:.2f} ms")
+                print(f"Self CUDA memory usage: {event.self_cuda_memory_usage/1024**2:.2f} MB")
+                print(f"Self CUDA max memory usage: {event.self_cuda_max_memory_usage/1024**2:.2f} MB")
+                print(f"CUDA time: {event.cuda_time_total/1000:.2f} ms")
+        return output
+
 
 class MAGReorderedNormTransformerBlock(TransformerBlock):
     """
@@ -238,7 +273,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
                     expansion_factor=2.0
                 )
             )
-            print(f"Model size: {sum(p.numel() for p in self.memory.memory_model.parameters() if p.requires_grad) * 4 / (1024 ** 2):.2f} MB")
+            print(f"Memory Model Size: {sum(p.numel() for p in self.memory.memory_model.parameters() if p.requires_grad) * 4 / (1024 ** 2):.2f} MB")
 
             self.state = None
 
@@ -250,19 +285,27 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         **kwargs,
     ) -> torch.Tensor:
         del loss_div_factor
-        attn = self.attention(x, **kwargs)
-        attn_with_mem = attn
-
-        # Add profiling around memory operations
-        if self.memory:
-            # Wrap the entire memory operation in profiler
+        output = None
+        if not self.memory:
+            attn = self.attention(x, **kwargs)
+            h = x + self.dropout(self.attention_norm(attn))
+            output = h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
+        else:
+            profiler = [ProfilerActivity.CPU, ProfilerActivity.CUDA] if torch.cuda.is_available() else [ProfilerActivity.CPU]
             with profile(
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                activities=profiler,
                 profile_memory=True,
                 record_shapes=True,
                 with_stack=True,
                 with_flops=True
-            ) as prof:
+            ) as prof:            
+            
+                # Wrap the entire memory operation in profiler
+                # Profile the attention operation
+                with record_function("attention_forward"):
+                    attn = self.attention(x, **kwargs)
+                attn_with_mem = attn
+
                 # Profile the stack operation separately
                 with record_function("stack_qkv_input"):
                     qkv_input = torch.stack([attn, attn, attn], dim=0)
@@ -282,21 +325,27 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
                 # Profile memory gating application
                 with record_function("apply_memory_gate"):
                     attn_with_mem = nn.Sigmoid()(retrieved) * attn
-            
+
+                with record_function("feed_forward"):
+                    h = x + self.dropout(self.attention_norm(attn_with_mem))
+                    output = h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
+
             # Print profiling results
             print("===== MEMORY PROFILING RESULTS =====")
-            print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=20))
-            
+            key = "self_cuda_memory_usage" if torch.cuda.is_available() else "cpu_memory_usage"
+            print(prof.key_averages().table(sort_by=key, row_limit=20))
+
             # Get detailed memory stats for assoc_scan specifically
             for event in prof.key_averages():
                 if "assoc_scan" in event.key:
                     print(f"\nDetailed stats for {event.key}:")
+                    print(f"Self CPU memory usage: {event.self_cpu_memory_usage/1024**2:.2f} MB")
+                    print(f"Self CPU max memory usage: {event.self_cpu_max_memory_usage/1024**2:.2f} MB")
+                    print(f"Self CPU time total: {event.self_cpu_time_total/1000:.2f} ms")
                     print(f"Self CUDA memory usage: {event.self_cuda_memory_usage/1024**2:.2f} MB")
                     print(f"Self CUDA max memory usage: {event.self_cuda_max_memory_usage/1024**2:.2f} MB")
                     print(f"CUDA time: {event.cuda_time_total/1000:.2f} ms")
-
-        h = x + self.dropout(self.attention_norm(attn_with_mem))
-        return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
+        return output
 
 
 @beta_feature
