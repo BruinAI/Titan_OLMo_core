@@ -36,7 +36,7 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 
 USE_MAG = True
 USE_SW = False
-max_new_tokens = 1
+max_new_tokens = 64
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}
@@ -109,6 +109,7 @@ with torch.no_grad() and torch.amp.autocast('cuda', enabled=(device.type == "cud
         # Stream each generated token in real time
         streamed_token = tokenizer.decode([next_token.item()], skip_special_tokens=True)
         print(streamed_token, end='', flush=True)
+        print("", f"Generated token #{i + 1}")
 print()
 # output_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
 # print(output_text)

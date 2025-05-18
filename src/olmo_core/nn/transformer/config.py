@@ -139,7 +139,7 @@ class MemoryConfig:
 
     # Neural memory configuration
     neural_memory_layers: Tuple[int, ...] = (2, 4, 6, 8, 10)
-    neural_memory_chunk_size: int | tuple[int, int] = 1
+    neural_memory_chunk_size: int | tuple[int, int] = 16
     neural_mem_gate_attn_output: bool = False
     neural_memory_add_value_residual: bool = False
     neural_memory_qkv_receives_diff_views: bool = True
