@@ -1,5 +1,6 @@
 import sys
 import os
+from typing import Generator
 if "olmo_core" not in sys.path:
     sys.path.append("..")
 if not os.getcwd().endswith("src/scripts"):  # for VS Code debugging
@@ -99,19 +100,20 @@ tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
 inputs = tokenizer(sample_text, return_tensors="pt")
 
 # Move inputs to the chosen device
-input_ids = inputs["input_ids"].to(device)
+input_token_ids = inputs["input_ids"].to(device)
 attention_mask = inputs.get("attention_mask", None)
 if attention_mask is not None:
     attention_mask = attention_mask.to(device)
 
-# Manual autoregressive decoding loop
-model.eval()
-generated_ids = input_ids
 
-profiler = [ProfilerActivity.CPU, ProfilerActivity.CUDA] if is_cuda else[ProfilerActivity.CPU]
-with profile(activities=profiler, profile_memory=True, record_shapes=True) as prof:
+def generate(model, input_ids, max_tokens=MAX_TOKENS, attention_mask=None) -> Generator[torch.types.Number, None, None]:
+    input_ids = input_ids.to(model.device)
+    generated_ids = input_ids
+    if attention_mask is not None:
+        attention_mask = attention_mask.to(model.device)
+    model.eval()
     with torch.no_grad(), torch.amp.autocast('cuda', enabled=is_cuda):
-        for i in range(MAX_TOKENS):
+        for i in range(max_tokens):
             model_inputs = {"input_ids": generated_ids}
             if attention_mask is not None:
                 model_inputs["attention_mask"] = attention_mask
@@ -122,15 +124,24 @@ with profile(activities=profiler, profile_memory=True, record_shapes=True) as pr
             # logits = outputs.logits
             next_token_logits = logits[:, -1, :]
             next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-            if next_token.item() == tokenizer.eos_token_id:
-                break
             generated_ids = torch.cat([generated_ids, next_token], dim=-1)
             if attention_mask is not None:
                 new_mask = torch.ones_like(next_token, dtype=attention_mask.dtype)
                 attention_mask = torch.cat([attention_mask, new_mask], dim=-1)
             # Stream each generated token in real time
-            streamed_token = tokenizer.decode([next_token.item()], skip_special_tokens=True)
-            print(streamed_token, end='', flush=True)
+            yield next_token.item()
+            # ending generation if EOS token is reached
+            if next_token.item() == tokenizer.eos_token_id:
+                break
+
+
+profiler = [ProfilerActivity.CPU, ProfilerActivity.CUDA] if is_cuda else[ProfilerActivity.CPU]
+with profile(activities=profiler, profile_memory=True, record_shapes=True) as prof:
+    for token in generate(model, input_token_ids, max_tokens=MAX_TOKENS, attention_mask=attention_mask):
+        streamed_token = tokenizer.decode([token], skip_special_tokens=True)
+        print(streamed_token, end="", flush=True)
+        if token == tokenizer.eos_token:
+            break
 print("[Max Tokens Reached]")
 if PROFILE_MEM:
     key = "self_cuda_memory_usage" if is_cuda else "self_cpu_memory_usage"
