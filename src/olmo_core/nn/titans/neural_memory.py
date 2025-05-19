@@ -1,4 +1,3 @@
-from types import NoneType
 import torch
 from torch import nn
 from torch.nn.functional import normalize
@@ -26,7 +25,7 @@ class ParallelMLPs(nn.Module):
         for mlp in self.mlps:
             for layer in mlp.parameters():
                 if isinstance(layer, nn.Linear):
-                    torch.nn.init.xavier_uniform_(layer.weight)
+                    torch.nn.init.zeros_(layer.weight)
                     if layer.bias is not None:
                         torch.nn.init.zeros_(layer.bias)
 
@@ -88,7 +87,6 @@ class NeuralMemory(nn.Module):
             mlps.append(mlp)  # adding the mlp to the list
         parallel_mlps = ParallelMLPs(mlps)
         self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
-        # self.mlps_processor = parallel_mlps
 
     def reset_mlps(self):
         if self.mlps_processor is not None:
@@ -110,14 +108,12 @@ class NeuralMemory(nn.Module):
         keys = normalize(self.silu(self.K(z)))
         vals = self.silu(self.V(z))
 
-        total_loss = 0
         with torch.enable_grad():  # Enable gradients for this specific block
             # Propagate the keys through the model
             keys = self.forward(keys)
 
             # Calculate the loss || M(keys) - vals ||_2 ^2
             loss = ((keys - vals) ** 2).mean(axis=0).sum()
-            total_loss += loss.item()
 
             # Compute gradients of aux loss w.r.t. NMM's parameters
             # Ensure parameters of NeuralMemory (self.K, self.V, self.layers) have requires_grad=True
@@ -131,4 +127,4 @@ class NeuralMemory(nn.Module):
                 self.surprise[name] = self.surprise[name] * self.eta - self.theta * grad
                 param.data = self.alpha * param.data + self.surprise[name]
 
-        return total_loss
+            return loss

@@ -12,6 +12,7 @@ if sys.platform == "darwin":  # if macos:
     os.environ["PATH"] = "/opt/homebrew/opt/llvm/bin:" + os.environ["PATH"]
     os.environ["LDFLAGS"] = "-L/opt/homebrew/opt/llvm/lib"
     os.environ["CPPFLAGS"] = "-I/opt/homebrew/opt/llvm/include"  # for MacOS
+# Debugging options for torch.compile
 # os.environ["TORCHINDUCTOR_COMPILE_OPTIONS"] = "-Wl,-rpath,/usr/lib"
 # os.environ["TORCHDYNAMO_VERBOSE"] = "1"
 # os.environ["TORCH_COMPILE_DEBUG"] = "1"
@@ -57,11 +58,12 @@ PROFILE_MEM = False
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}
+memory_config = MemoryConfig()
 if USE_MAG:
     kwargs["block_name"] = TransformerBlockType.mag_reordered_norm
-    kwargs["memory_config"] = MemoryConfig()
+    kwargs["memory_config"] = memory_config
 if USE_SW:
-    kwargs["sliding_window"] = SlidingWindowAttentionConfig(pattern=[True], window_size=32)
+    kwargs["sliding_window"] = SlidingWindowAttentionConfig(pattern=[True], window_size=memory_config.window_size)
     kwargs["use_flash"] = True
 
 tok_cfg = TokenizerConfig.dolma2()

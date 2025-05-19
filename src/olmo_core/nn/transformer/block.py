@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union, cast
 
 import torch
 import torch.nn as nn
-from torch.func import functional_call
 from torch.distributed import DeviceMesh
 from torch.distributed.fsdp import FSDPModule, fully_shard
 from torch.distributed.tensor import Placement, Shard
@@ -218,7 +217,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         super().__init__(**kwargs)
         d_model = kwargs.get("d_model", None)
         assert d_model is not None and isinstance(d_model, int) and d_model > 0, "d_model must be a kwarg of type int and > 0"
-        self.context_window = self.memory_config.context_window
+        self.chunk_size = self.memory_config.chunk_size
         self.memory = NeuralMemory(
             emb_dim=d_model,
             n_layers=self.memory_config.n_layers,
@@ -244,7 +243,6 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
 
     def inference_forward(self, x: torch.Tensor, *, loss_div_factor: Optional[Union[torch.Tensor, float]] = None, **kwargs) -> torch.Tensor:
         del loss_div_factor
-        device = x.device
         if self.memory.mlps_processor is None:
             self.memory.init_mlp(x.shape[0])
         
@@ -259,7 +257,33 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
 
     def train_forward(self, x: torch.Tensor, *, loss_div_factor: Optional[Union[torch.Tensor, float]] = None, **kwargs) -> torch.Tensor:
-        raise NotImplementedError("Train step is not implemented for this block.")
+        del loss_div_factor
+        # initializing the memory for this batch
+        if self.memory.mlps_processor is None:
+            self.memory.init_mlp(x.shape[0])
+        else:
+            self.memory.reset_mlps()
+        
+        # padding the input to be a multiple of chunk_size
+        pad = self.chunk_size - (x.size(1) % self.chunk_size)
+        if pad > 0:
+            x = torch.cat([x, torch.zeros(x.size(0), pad, x.size(2), device=x.device)], dim=1)
+            
+        # iterating through the input in chunks
+        gates = []  # list to store the gates (avoid redundant computation)
+        attn = None  # to store final attention output
+        for i in range(x.size(1) // self.chunk_size):
+            attn = self.attention(x[:, :(i+1) * self.chunk_size], **kwargs)
+            last_attns = attn[:, -self.chunk_size:, :]
+            _loss = self.memory.update(last_attns)
+            gate = self.memory.retrieve(self.Q(last_attns))
+            gates.append(gate)
+        gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
+        attn_with_mem = nn.Sigmoid()(gates) * attn  # MAG gate
+
+        # basic attn normalization + feed forward
+        h = x + self.dropout(self.attention_norm(attn_with_mem))
+        return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
 
 @beta_feature
 class NormalizedTransformerBlock(TransformerBlockBase):
