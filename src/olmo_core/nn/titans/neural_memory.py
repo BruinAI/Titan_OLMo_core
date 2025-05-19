@@ -1,3 +1,4 @@
+from hmac import new
 import torch
 from torch import nn
 from torch.nn.functional import normalize
@@ -46,11 +47,9 @@ class NeuralMemory(nn.Module):
         self.mlps_processor: nn.Module | None = None
         self.mlp_reset = True
 
-        # Mapping to keys
-        self.K = nn.Linear(emb_dim, emb_dim, bias = False)
-
-        # Mapping to values
-        self.V = nn.Linear(emb_dim, emb_dim, bias = False)
+        self.K = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to keys
+        self.Q = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to queries
+        self.V = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to values
 
         torch.nn.init.xavier_uniform_(self.K.weight)
         torch.nn.init.xavier_uniform_(self.V.weight)
@@ -77,7 +76,7 @@ class NeuralMemory(nn.Module):
                 ]
                 for k in range(self.n_layers - 2):
                     layers += [
-                        nn.Linear(self.emb_dim, self.hidden_dim),
+                        nn.Linear(self.hidden_dim, self.hidden_dim),
                         nn.SiLU()
                     ]
                 layers.append(nn.Linear(self.hidden_dim, self.emb_dim))
@@ -94,13 +93,17 @@ class NeuralMemory(nn.Module):
             self.mlps_processor.init_weights()  # type: ignore
             self.mlp_reset = True
 
-    def retrieve(self, x):
-        return functional_call(self, dict(self.named_parameters()), x)
+    def retrieve(self, x, new_params=None):
+        if new_params is None:
+            return self.forward(x)  # same thing as functional_call just clearer code
+        else:
+            return functional_call(self, dict(self.named_parameters()), x)
 
     def forward(self, x):
         if self.mlps_processor is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
-        return self.mlps_processor(x)
+        queries = normalize(self.silu(self.Q(x)))
+        return self.mlps_processor(queries)
 
     def update(self, x):
         self.mlp_reset = False
@@ -108,7 +111,7 @@ class NeuralMemory(nn.Module):
 
         # Evaluate the corresponding keys and values
         keys = normalize(self.silu(self.K(z)))
-        vals = self.silu(self.V(z))
+        vals = normalize(self.silu(self.V(z)))
 
         with torch.enable_grad():  # Enable gradients for this specific block
             # Propagate the keys through the model

@@ -223,7 +223,6 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             n_layers=self.memory_config.n_layers,
             hidden_dim=self.memory_config.hidden_dim_multiple * d_model,
         )
-        self.Q = nn.Linear(d_model, d_model)
         # self.persistent_memory = nn.Parameter(
         #     torch.randn(self.memory_config.persistent_mem_len, d_model)
         # )
@@ -255,7 +254,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
                 _loss = self.memory.update(chunk_attns)
         last_attn = attn[:, -1, :].unsqueeze(1)
         _loss = self.memory.update(last_attn)
-        gate = self.memory.retrieve(self.Q(attn))  # TODO: optimize to avoid redundant computation
+        gate = self.memory.retrieve(attn)  # TODO: optimize to avoid redundant computation
 
         attn_with_mem = nn.Sigmoid()(gate) * attn
 
@@ -269,20 +268,16 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             self.memory.init_mlp(x.shape[0])
         else:
             self.memory.reset_mlps()
-        
-        # padding the input to be a multiple of chunk_size
-        pad = self.chunk_size - (x.size(1) % self.chunk_size)
-        if pad > 0:
-            x = torch.cat([x, torch.zeros(x.size(0), pad, x.size(2), device=x.device)], dim=1)
             
         # iterating through the input in chunks
         gates = []  # list to store the gates (avoid redundant computation)
-        attn = None  # to store final attention output
+        attn = self.attention(x, **kwargs)
         for i in range(x.size(1) // self.chunk_size):
-            attn = self.attention(x[:, :(i + 1) * self.chunk_size], **kwargs)
-            last_attns = attn[:, -self.chunk_size:, :]
-            _loss = self.memory.update(last_attns)
-            gate = self.memory.retrieve(self.Q(last_attns))
+            start = i * self.chunk_size
+            end = min(start + self.chunk_size, x.shape[1])
+            chunk_attns = attn[:, start:end, :]
+            _loss = self.memory.update(chunk_attns)
+            gate = self.memory.retrieve(chunk_attns)
             gates.append(gate)
         gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
         attn_with_mem = nn.Sigmoid()(gates) * attn  # MAG gate
