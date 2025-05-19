@@ -1,5 +1,5 @@
 import torch
-from torch import gt, nn, unsqueeze
+from torch import nn, unsqueeze
 from torch.nn.functional import normalize
 from torch.func import functional_call, grad, vmap
 from xdist.scheduler import each
@@ -25,6 +25,12 @@ def loss_one(model, param_dict, x, target):
 grad_one = grad(loss_one, argnums=1)  # takes the gradient of the loss w.r.t. the model parameters
 per_sample_grads = vmap(grad_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients
 
+def next_power_of_2(x: int) -> int:
+    if x < 1:
+        raise ValueError("Input must be a positive integer.")
+    return 1 << (x - 1).bit_length()  # Find the next power of 2 using bit manipulation
+
+
 class ParallelMLPs(nn.Module):
     """
     ParallelMLPs is a wrapper for multiple MLPs that allows for parallel processing of inputs with torch.compile.
@@ -41,6 +47,7 @@ class ParallelMLPs(nn.Module):
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
         return torch.stack(outputs, dim=0)
     
+    # TODO: add learned init weights, 0 weights cannot learn for mlp w/ >= 2 layers
     def init_weights(self):
         for mlp in self.mlps:
             for layer in mlp.parameters():
@@ -123,8 +130,14 @@ class NeuralMemory(nn.Module):
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
         queries = normalize(self.silu(self.Q(x)))
         return self.mlps_processor(queries)
+    
+    def update(self, x):
+        if x.shape[1] > 1:
+            return self.update_seq(x)
+        else:
+            return self.update_single(x)
         
-    def updatex(self, x):
+    def update_single(self, x):
         self.mlp_reset = False
         z = x.detach()
 
@@ -160,8 +173,7 @@ class NeuralMemory(nn.Module):
 
             return loss
     
-    # TODO: better understand scan channel formatting + optimize code (very slow)
-    def update(self, x):
+    def update_seq(self, x):
         self.mlp_reset = False
         z = x.detach()
 
@@ -173,33 +185,55 @@ class NeuralMemory(nn.Module):
             # Dict[parameter name] -> (seq len, *param shape)
             grads = per_sample_grads(self.mlps_processor, dict(self.mlps_processor.named_parameters()), keys, vals)  # type: ignore
             for (name, param), grad_name in zip(self.mlps_processor.named_parameters(), grads):  # type: ignore
-                grad = grads[grad_name]
-                if grad is None or name[0] in ['K', 'V']:
+                grad = grads[grad_name]  # getting grad: (seq_len, *param shape)
+                if grad is None or name[0] in ['K', 'V']:  # skip K and V and not-computed grads
                     continue
+
+                # checking if grad is 2D (like biases) and converting to 3D for scan
                 unsqueezed = False
-                if len(grad.shape) == 2:
-                    grad = grad.unsqueeze(1)
+                if len(grad.shape) == 2:  # (seq_len, hidden_dim)
+                    grad = grad.unsqueeze(1)  # (seq_len, 1, hidden_dim)
                     unsqueezed = True
-                # grad: (seq_len, *param shape)
-                if name not in self.surprise:
-                    self.surprise[name] = torch.zeros_like(grad)
-                base_surprise = self.surprise[name]
+                grad = grad.permute(1, 2, 0)  # (*param shape, seq_len)
+
+                # 
+                seq_len = grad.shape[-1]
+                pad_seq_len = next_power_of_2(seq_len)  # find the next power of 2
+                if pad_seq_len > seq_len:
+                    pad = torch.zeros(grad.shape[0], grad.shape[1], pad_seq_len - seq_len, device=grad.device)
+                    grad = torch.cat([grad, pad], dim=-1)
+
+                
+                base_surprise = self.surprise.get(name, torch.zeros_like(grad))  # (*param shape, seq_len)
+                eta_t = torch.ones_like(grad, device=grad.device) * self.eta  # (*param shape, seq_len)
+                each_surprise = -grad * self.theta  # multiplying by -theta to scale grads according to the formula
                 # surprises: s_t = eta * s_{t-1} - theta * grad
-                eta_t = torch.ones_like(grad, device=grad.device) * self.eta  # (seq_len, *param shape)
-                each_surprise = -grad * self.theta
-                assert eta_t.shape == each_surprise.shape, f"eta_t shape {eta_t.shape} != each_surprise shape {each_surprise.shape}"
-                surprises = scan(eta_t, each_surprise)
+                # SCAN EXPECTS INPUTS OF (B, C, T) and OUTPUTS (B, C, T)
+                surprises = scan(eta_t, each_surprise)  # (*param shape, seq_len)
 
-                eta_cum_prod = torch.cumprod(eta_t, dim=0)  # not sure if this is parallel but also not sure if it matters
-                base_surprise = base_surprise * eta_cum_prod
+                # Adding the base surprise to the surprises and storing results
+                eta_cumprod = torch.cumprod(eta_t, dim=0)
+                base_surprise = base_surprise * eta_cumprod
                 surprises += base_surprise
-
-                beta_t = torch.ones_like(surprises, device=grad.device) * (1 - self.alpha)  # (seq_len, *param shape)
-                assert beta_t.shape == surprises.shape, f"beta_t shape {beta_t.shape} != surprises shape {surprises.shape}"
-                updates = scan(beta_t, surprises)
-                if unsqueezed:
-                    updates = updates.squeeze(1)  # type: ignore
-                param.data = param.data + updates.sum(dim=0)  # type: ignore
                 self.surprise[name] = surprises[-1]
 
-            return 0
+                # calculating the updates
+                beta_t = torch.ones_like(surprises, device=grad.device) * (1 - self.alpha)  # (*param shape, seq_len)
+                updates = scan(beta_t, surprises)
+
+                # squeezing the updates if they are 2D (like biases), (hidden_dim, 1, seq_len) -> (hidden_dim, seq_len)
+                if unsqueezed:
+                    updates = updates.squeeze(1)  # type: ignore
+                    beta_t = beta_t.squeeze(1)  # squeeze beta_t as well for cumprod update
+                
+                # Adding the base memory to the updates and storing results
+                beta_cumprod = torch.cumprod(beta_t, dim=-1)
+                expanded_base_memory = param.data.unsqueeze(-1).expand_as(beta_cumprod)  # (*param shape, seq_len)
+                base_memory = expanded_base_memory * beta_cumprod
+                update_data = base_memory + updates  # type: ignore
+                if seq_len < pad_seq_len:
+                    update_data = update_data[..., :seq_len]
+                param.data = update_data.sum(dim=-1)  # type: ignore
+                
+
+            return 0  # TODO: return loss?
