@@ -4,7 +4,7 @@ from torch.nn.functional import normalize
 from torch.func import functional_call, grad, vmap
 from xdist.scheduler import each
 if torch.cuda.is_available():
-    from accelerated_scan.warp import scan  # can only be used on CUDA
+    from accelerated_scan.ref import scan  # Temp changed from warp to ref to test memory
 else:
     from accelerated_scan.ref import scan
 from typing import List
@@ -26,9 +26,11 @@ grad_one = grad(loss_one, argnums=1)  # takes the gradient of the loss w.r.t. th
 per_sample_grads = vmap(grad_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients
 
 def next_power_of_2(x: int) -> int:
+    """Find the next power of 2 that's at least 32. Associative Scan demands at least 32 on CUDA"""
     if x < 1:
         raise ValueError("Input must be a positive integer.")
-    return 1 << (x - 1).bit_length()  # Find the next power of 2 using bit manipulation
+    power_of_2 = 1 << (x - 1).bit_length()
+    return max(power_of_2, 2)  # Ensure minimum length of 2
 
 
 class ParallelMLPs(nn.Module):
@@ -90,6 +92,9 @@ class NeuralMemory(nn.Module):
     # Ideally only called once, compiling slows it down, pad inputs instead
     def init_mlp(self, batch_size):
         del self.mlps_processor
+        
+        device = next(self.parameters()).device # Adding CUDA support
+        
         mlps = []
         for i in range(batch_size):
             # Building the layers in the MLP
@@ -111,7 +116,7 @@ class NeuralMemory(nn.Module):
                 *layers
             )
             mlps.append(mlp)  # adding the mlp to the list
-        parallel_mlps = ParallelMLPs(mlps)
+        parallel_mlps = ParallelMLPs(mlps).to(device)
         self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
 
     def reset_mlps(self):
