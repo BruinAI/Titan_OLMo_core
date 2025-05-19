@@ -236,20 +236,30 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         loss_div_factor: Optional[Union[torch.Tensor, float]] = None,
         **kwargs,
     ) -> torch.Tensor:
+        if self.training:
+            return self.train_forward(x, loss_div_factor=loss_div_factor, **kwargs)
+        else:
+            return self.inference_forward(x, loss_div_factor=loss_div_factor, **kwargs)
+
+
+    def inference_forward(self, x: torch.Tensor, *, loss_div_factor: Optional[Union[torch.Tensor, float]] = None, **kwargs) -> torch.Tensor:
         del loss_div_factor
         device = x.device
-
+        if self.memory.mlps_processor is None:
+            self.memory.init_mlp(x.shape[0])
+        
         attn = self.attention(x, **kwargs)
         last_attn = attn[:, -1, :].unsqueeze(1)
-        _loss, new_params = self.memory.update(last_attn)
-
-        gate = functional_call(self.memory, new_params, self.Q(attn))
+        _loss = self.memory.update(last_attn)
+        gate = self.memory.retrieve(self.Q(attn))
 
         attn_with_mem = nn.Sigmoid()(gate) * attn
 
         h = x + self.dropout(self.attention_norm(attn_with_mem))
         return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
 
+    def train_forward(self, x: torch.Tensor, *, loss_div_factor: Optional[Union[torch.Tensor, float]] = None, **kwargs) -> torch.Tensor:
+        raise NotImplementedError("Train step is not implemented for this block.")
 
 @beta_feature
 class NormalizedTransformerBlock(TransformerBlockBase):

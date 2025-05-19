@@ -33,6 +33,8 @@
 
 First install [PyTorch](https://pytorch.org) according to the instructions specific to your operating system and hardware.
 
+Also must install **LLVM** for torch.compile to work (in nn.neural_memory).
+
 For development, we recommend installing from source:
 
 ```bash

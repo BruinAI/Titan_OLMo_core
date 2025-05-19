@@ -4,9 +4,21 @@ if "olmo_core" not in sys.path:
     sys.path.append("..")
 if not os.getcwd().endswith("src/scripts"):  # for VS Code debugging
     os.chdir("src/scripts")
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # to avoid warnings
+
+# Environment variables for Torch Compile -> Torch Inductor -> Torch Dynamo -> Triton and/or LLVM
+# MUST HAVE Triton (if using GPU) and LLVM installed
+if sys.platform == "darwin":  # if macos:
+    os.environ["PATH"] = "/opt/homebrew/opt/llvm/bin:" + os.environ["PATH"]
+    os.environ["LDFLAGS"] = "-L/opt/homebrew/opt/llvm/lib"
+    os.environ["CPPFLAGS"] = "-I/opt/homebrew/opt/llvm/include"  # for MacOS
+# os.environ["TORCHINDUCTOR_COMPILE_OPTIONS"] = "-Wl,-rpath,/usr/lib"
+# os.environ["TORCHDYNAMO_VERBOSE"] = "1"
+# os.environ["TORCH_COMPILE_DEBUG"] = "1"
+# os.environ["TORCHINDUCTOR_VERBOSE"] = "1"
 
 import torch
-from torch.profiler import profile, record_function, ProfilerActivity
+from torch.profiler import profile, ProfilerActivity
 from pathlib import Path
 from olmo_core.distributed.checkpoint import unshard_checkpoint
 from transformers import AutoTokenizer
@@ -40,7 +52,7 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 
 USE_MAG = True
 USE_SW = False
-MAX_TOKENS = 16
+MAX_TOKENS = 128
 PROFILE_MEM = False
 
 # Rebuilding the same Transformer architecture:
