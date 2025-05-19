@@ -44,6 +44,7 @@ class NeuralMemory(nn.Module):
         self.n_layers = n_layers
         self.hidden_dim = hidden_dim
         self.mlps_processor: nn.Module | None = None
+        self.mlp_reset = True
 
         # Mapping to keys
         self.K = nn.Linear(emb_dim, emb_dim, bias = False)
@@ -91,6 +92,7 @@ class NeuralMemory(nn.Module):
     def reset_mlps(self):
         if self.mlps_processor is not None:
             self.mlps_processor.init_weights()  # type: ignore
+            self.mlp_reset = True
 
     def retrieve(self, x):
         return functional_call(self, dict(self.named_parameters()), x)
@@ -101,7 +103,7 @@ class NeuralMemory(nn.Module):
         return self.mlps_processor(x)
 
     def update(self, x):
-
+        self.mlp_reset = False
         z = x.detach()
 
         # Evaluate the corresponding keys and values

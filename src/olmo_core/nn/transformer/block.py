@@ -247,9 +247,15 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             self.memory.init_mlp(x.shape[0])
         
         attn = self.attention(x, **kwargs)
+        if self.memory.mlp_reset:
+            for i in range((x.shape[1] - 1) // self.chunk_size):
+                start = i * self.chunk_size
+                end = min(start + self.chunk_size, x.shape[1])
+                chunk_attns = attn[:, start:end, :]
+                _loss = self.memory.update(chunk_attns)
         last_attn = attn[:, -1, :].unsqueeze(1)
         _loss = self.memory.update(last_attn)
-        gate = self.memory.retrieve(self.Q(attn))
+        gate = self.memory.retrieve(self.Q(attn))  # TODO: optimize to avoid redundant computation
 
         attn_with_mem = nn.Sigmoid()(gate) * attn
 
@@ -273,7 +279,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         gates = []  # list to store the gates (avoid redundant computation)
         attn = None  # to store final attention output
         for i in range(x.size(1) // self.chunk_size):
-            attn = self.attention(x[:, :(i+1) * self.chunk_size], **kwargs)
+            attn = self.attention(x[:, :(i + 1) * self.chunk_size], **kwargs)
             last_attns = attn[:, -self.chunk_size:, :]
             _loss = self.memory.update(last_attns)
             gate = self.memory.retrieve(self.Q(last_attns))
