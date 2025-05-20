@@ -52,7 +52,7 @@ class ParallelMLPs(nn.Module):
         return torch.stack(outputs, dim=0)
     
     # TODO: add learned init weights, 0 weights cannot learn for mlp w/ >= 2 layers
-    def init_weights(self, mean=0, std=10):
+    def init_weights(self, mean=0., std=.02):
         for mlp in self.mlps:
             for layer in mlp.modules():  # Iterate through modules, not parameters
                 if isinstance(layer, nn.Linear):
@@ -119,7 +119,7 @@ class NeuralMemory(nn.Module):
             )
             mlps.append(mlp)  # adding the mlp to the list
         parallel_mlps = ParallelMLPs(mlps).to(device)
-        parallel_mlps.init_weights(mean=0, std=10) 
+        parallel_mlps.init_weights(mean=0, std=0.02) 
         self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
 
     def reset_mlps(self):
@@ -193,13 +193,13 @@ class NeuralMemory(nn.Module):
             # compute per-sample gradients: dict[name] → (seq_len, *param_shape)
             grads = per_sample_grads(
                 self.mlps_processor,
-                dict(self.mlps_processor.named_parameters()),
+                dict(self.mlps_processor.named_parameters()),   # type:ignore
                 keys,
                 vals,
             )
 
             for (name, param), grad_name in zip(
-                self.mlps_processor.named_parameters(), grads
+                self.mlps_processor.named_parameters(), grads   # type:ignore
             ):
                 grad = grads[grad_name]  # (T, ...)
                 if grad is None or name[0] in ['K', 'V']:

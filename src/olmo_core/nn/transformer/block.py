@@ -226,6 +226,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         # self.persistent_memory = nn.Parameter(
         #     torch.randn(self.memory_config.persistent_mem_len, d_model)
         # )
+        self.gate_cache = None
 
     def forward(
         self,
@@ -245,18 +246,26 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         if self.memory.mlps_processor is None:
             self.memory.init_mlp(x.shape[0])
         
-        attn = self.attention(x, **kwargs)
+        # mlp_reset is set to False internally during memory.update
         if self.memory.mlp_reset:
             for i in range(1 + ((x.shape[1] - 1) // self.chunk_size)):
                 start = i * self.chunk_size
                 end = min(start + self.chunk_size, x.shape[1])
-                chunk_attns = attn[:, start:end, :]
-                _loss = self.memory.update(chunk_attns)
-        last_attn = attn[:, -1, :].unsqueeze(1)
-        _loss = self.memory.update(last_attn)
-        gate = self.memory.retrieve(attn)
-
-        attn_with_mem = nn.Sigmoid()(gate) * attn
+                chunk_x = x[:, start:end, :]
+                _loss = self.memory.update(chunk_x)
+        last_x = x[:, -1, :].unsqueeze(1)
+        _loss = self.memory.update(last_x)
+        
+        # If the cache is unitialized yet, that means the entire sequence's memory output needs to be cached
+        if self.gate_cache is None:
+            self.gate_cache = self.memory.retrieve(x)
+        # If the cache is already initialized, that means we only need to get the latest memory update
+        else:
+            last_gate = self.memory.retrieve(last_x)
+            self.gate_cache = torch.cat([self.gate_cache, last_gate], 1)
+                                         
+        attn = self.attention(x, **kwargs)
+        attn_with_mem = nn.Sigmoid()(self.gate_cache) * attn
 
         h = x + self.dropout(self.attention_norm(attn_with_mem))
         return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
@@ -271,15 +280,16 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             
         # iterating through the input in chunks
         gates = []  # list to store the gates (avoid redundant computation)
-        attn = self.attention(x, **kwargs)
         for i in range(1 + ((x.size(1) - 1) // self.chunk_size)):
             start = i * self.chunk_size
             end = min(start + self.chunk_size, x.shape[1])
-            chunk_attns = attn[:, start:end, :]
-            _loss = self.memory.update(chunk_attns)
-            gate = self.memory.retrieve(chunk_attns)
+            chunk_x = x[:, start:end, :]
+            _loss = self.memory.update(chunk_x)
+            gate = self.memory.retrieve(chunk_x)
             gates.append(gate)
         gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
+        
+        attn = self.attention(x, **kwargs)
         attn_with_mem = nn.Sigmoid()(gates) * attn  # MAG gate
 
         # basic attn normalization + feed forward

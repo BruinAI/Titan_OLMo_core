@@ -303,7 +303,7 @@ class TransformerConfig(Config):
             f"{self.num_non_embedding_params:,d} non-embedding params"
         )
         model: Transformer
-        if self.name == TransformerType.default:
+        if self.name == TransformerType.default:  # COPY NEXT FOR MEMORY TRANSFORMER
             model = Transformer(
                 d_model=self.d_model,
                 vocab_size=self.vocab_size,
