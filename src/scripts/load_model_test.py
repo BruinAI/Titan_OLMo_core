@@ -63,6 +63,9 @@ TRAIN_MODEL = True
 # Layers that should use memory (e.g., only layers 0, 5, 10)
 MEMORY_LAYERS = [0, 1, 2, 3, 4] # Maximum number of memory layers I can have without crashing on 20gb 5/19
 
+if sys.platform == "darwin":
+    USE_SW = False  # MacOS doesn't support flash attn which is needed for sw attn
+
 # Rebuilding the same Transformer architecture:
 kwargs = {}
 memory_config = MemoryConfig()
@@ -193,14 +196,18 @@ else:
         input_ids, attention_mask = get_input_ids(train_str)
 
         # since model hasn't been called yet, mlps haven't been initialized -> not in model.parameters()
-        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+        optimizer = None
         ce_loss = torch.nn.CrossEntropyLoss()
         model.train()
 
         target = torch.nn.functional.one_hot(input_ids[:, 1:], num_classes=model_cfg.vocab_size).float()
         x = input_ids[:, :-1].clone()
+        # outputs = model(x, attention_mask=attention_mask)
+        optimizer = None  # torch.optim.AdamW(model.parameters(), lr=1e-4)
         for i in tqdm(range(3)):
-            outputs = model(x, attention_mask=attention_mask)[:, NUM_PERSISTENT:, :]
+            outputs = model(x, attention_mask=attention_mask)[:, NUM_PERSISTENT:, :]                
+            if optimizer is None:
+                optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
             loss = ce_loss(outputs, target)
             loss.backward()
             optimizer.step()

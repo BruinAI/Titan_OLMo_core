@@ -35,29 +35,83 @@ def next_power_of_2(x: int) -> int:
 class ParallelMLPs(nn.Module):
     """
     ParallelMLPs is a wrapper for multiple MLPs that allows for parallel processing of inputs with torch.compile.
+    It supports a learnable initial state for the weights of the MLPs.
     """
-    def __init__(self, mlp_list: List[nn.Module]):
+    def __init__(self, mlp_list: List[nn.Module], mlp_template_weights: nn.ParameterDict):
         super().__init__()
+        
+        if not mlp_list:
+            raise ValueError("mlp_list cannot be empty")
         self.mlps = nn.ModuleList(mlp_list)
-        self.init_weights()
+        self._template_weights = mlp_template_weights
 
+        # Perform initial copy of template weights to instance MLP parameters
+        # This uses the same logic as reset_weights_from_template but is done once.
+        with torch.no_grad():
+            for mlp_instance in self.mlps:
+                for name, p_inst in mlp_instance.named_parameters():
+                    clean_name = name.replace('.', '_')
+                    if clean_name in self._template_weights:
+                        template_param = self._template_weights[clean_name]
+                        p_inst.data.copy_(template_param.data)
+                    else:
+                        raise KeyError(
+                            f"Instance parameter {name} (cleaned: {clean_name}) not found in template weights "
+                            f"during initial data copy. Ensure MLP structures are consistent."
+                        )
+        
+        # TODO: Karen plz check this I don't understand hooks tbh
+        # Register hooks ONCE during initialization.
+        # This ensures gradients from instance MLPs flow to the template weights.
+        for mlp_instance in self.mlps:
+            for name, p_inst in mlp_instance.named_parameters():
+                clean_name = name.replace('.', '_')
+                # We assume clean_name is in _template_weights due to the check above,
+                # but for safety, you could re-check or ensure consistency.
+                template_param = self._template_weights[clean_name]
+
+                # Define the hook function using a closure to capture the correct template_param
+                def make_hook(tmpl_param_to_update):
+                    def hook(grad_from_instance):
+                        if grad_from_instance is not None: # Check if gradient exists
+                            print(f"Updating template parameter {tmpl_param_to_update} with gradient from instance.")
+                            if tmpl_param_to_update.grad is None:
+                                tmpl_param_to_update.grad = torch.zeros_like(tmpl_param_to_update.data)
+                            tmpl_param_to_update.grad.add_(grad_from_instance)
+                        # The hook should return None or the original grad.
+                        # Returning None is fine if the instance grad isn't modified by the hook.
+                        return None
+                    return hook
+
+                p_inst.register_hook(make_hook(template_param))
+
+    def reset_weights_from_template(self):
+        """
+        Copies the learned template weights to all MLP instances.
+        This is used for resetting the MLPs to their learned base state.
+        Hooks are NOT re-registered here.
+        """
+        with torch.no_grad(): # Ensure this operation is not tracked by autograd
+            for mlp_instance in self.mlps:
+                for name, param_instance in mlp_instance.named_parameters():
+                    clean_name = name.replace('.', '_')
+                    if clean_name in self._template_weights:
+                        param_instance.data.copy_(self._template_weights[clean_name].data)
+                    else:
+                        # This case implies a mismatch if it occurs after successful initialization.
+                        raise KeyError(
+                            f"Instance parameter {name} (cleaned: {clean_name}) not found in template weights "
+                            f"during reset. Ensure MLP structures remain consistent."
+                        )
+
+    # The _template_weights are nn.Parameters, so they will be learned.
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[0] != len(self.mlps):
             raise ValueError(
                 f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
             )
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
-        
         return torch.stack(outputs, dim=0)
-    
-    # TODO: add learned init weights, 0 weights cannot learn for mlp w/ >= 2 layers
-    def init_weights(self, mean=0., std=.02):
-        for mlp in self.mlps:
-            for layer in mlp.modules():  # Iterate through modules, not parameters
-                if isinstance(layer, nn.Linear):
-                    torch.nn.init.normal_(layer.weight, mean=mean, std=std)
-                    if layer.bias is not None:
-                        torch.nn.init.normal_(layer.bias, mean=mean, std=std)
 
 class NeuralMemory(nn.Module):
     """
@@ -74,6 +128,7 @@ class NeuralMemory(nn.Module):
         self.n_layers = n_layers
         self.hidden_dim = hidden_dim
         self.mlps_processor: nn.Module | None = None
+        self.mlp_template_weights: nn.ParameterDict = self.init_mlp_template_weights()
         self.mlp_reset = True
 
         self.K = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to keys
@@ -91,41 +146,67 @@ class NeuralMemory(nn.Module):
         self.silu = nn.SiLU()
         self.surprise = {}
 
+    def build_mlp(self):
+        """
+        Build the MLP layers based on the specified architecture.
+        This function is called during initialization to set up the MLP layers.
+        """
+        # Define the layers of the network
+        if self.n_layers == 1:
+            layers = [nn.Linear(self.emb_dim, self.emb_dim)]
+        else:
+            layers = [
+                nn.Linear(self.emb_dim, self.hidden_dim),
+                nn.SiLU()
+            ]
+            for k in range(self.n_layers - 2):
+                layers += [
+                    nn.Linear(self.hidden_dim, self.hidden_dim),
+                    nn.SiLU()
+                ]
+            layers.append(nn.Linear(self.hidden_dim, self.emb_dim))
+        return nn.Sequential(*layers)
+
+    def init_mlp_template_weights(self):
+        reference_mlp = self.build_mlp()
+        template_weights = nn.ParameterDict()
+        with torch.no_grad():
+            for name, param_to_copy in reference_mlp.named_parameters():
+                # Sanitize name for ParameterDict key, e.g., 'layers.0.weight' -> 'layers_0_weight'
+                clean_name = name.replace('.', '_')
+                # Create new parameters for the template
+                new_param = nn.Parameter(torch.empty_like(param_to_copy.data))
+                
+                # Initialize the template parameters (e.g., normal distribution)
+                # This initialization is for the *learnable template*.
+                # Adjust mean and std as needed, or use other init functions.
+                if "weight" in name:
+                    torch.nn.init.normal_(new_param.data, mean=0, std=0.02)
+                elif "bias" in name: # Bias exists but is None (e.g. bias=False in Linear)
+                    torch.nn.init.zeros_(new_param.data) # Or some other default
+                else: # Fallback for other params
+                    raise ValueError(f"Unexpected parameter name: {name}")
+                
+                template_weights[clean_name] = new_param
+        del reference_mlp
+        return template_weights
+
+
     # Ideally only called once, compiling slows it down, pad inputs instead
     def init_mlp(self, batch_size):
         del self.mlps_processor
-        
-        device = next(self.parameters()).device # Adding CUDA support
-        
+        device = next(self.parameters()).device
         mlps = []
         for i in range(batch_size):
-            # Building the layers in the MLP
-            if self.n_layers == 1:
-                layers = [nn.Linear(self.emb_dim, self.emb_dim)]
-            else:
-                layers = [
-                    nn.Linear(self.emb_dim, self.hidden_dim),
-                    nn.SiLU()
-                ]
-                for k in range(self.n_layers - 2):
-                    layers += [
-                        nn.Linear(self.hidden_dim, self.hidden_dim),
-                        nn.SiLU()
-                    ]
-                layers.append(nn.Linear(self.hidden_dim, self.emb_dim))
-            # Create the MLP as a sequential model
-            mlp = nn.Sequential(
-                *layers
-            )
+            mlp = self.build_mlp().to(device)  # build the mlp
             mlps.append(mlp)  # adding the mlp to the list
-        parallel_mlps = ParallelMLPs(mlps).to(device)
-        parallel_mlps.init_weights(mean=0, std=0.02) 
-        self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
+        parallel_mlps = ParallelMLPs(mlps, self.mlp_template_weights).to(device)
+        self.mlps_processor = parallel_mlps  # torch.compile(parallel_mlps)  # type: ignore
 
     def reset_mlps(self):
+        self.mlp_reset = True
         if self.mlps_processor is not None:
-            self.mlps_processor.init_weights()  # type: ignore
-            self.mlp_reset = True
+            self.mlps_processor.reset_weights_from_template()  # type: ignore
 
     def retrieve(self, x, new_params=None):
         if new_params is None:
@@ -194,7 +275,7 @@ class NeuralMemory(nn.Module):
             grads = per_sample_grads(self.mlps_processor, dict(self.mlps_processor.named_parameters()), keys, vals)  # type: ignore
             for (name, param), grad_name in zip(self.mlps_processor.named_parameters(), grads):  # type: ignore
                 grad = grads[grad_name]  # getting grad: (T, *param shape)
-                if grad is None or name[0] in ['K', 'V']:  # skip K and V and not-computed grads
+                if grad is None or name[0] in ['K', 'V'] or name.startswith("_template_weights.") or name.startswith("_orig_mod._template_weights."):
                     continue
 
                 # ================================================================
