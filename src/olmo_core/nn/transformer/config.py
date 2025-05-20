@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import TYPE_CHECKING, Dict, List, Tuple, Optional
+from typing import TYPE_CHECKING, Dict, List, Tuple, Optional, Union
 
 from olmo_core.config import Config, DType, StrEnum
 from olmo_core.doc_utils import beta_feature
@@ -20,6 +20,7 @@ from .init import InitMethod
 if TYPE_CHECKING:
     from .block import TransformerBlockBase
     from .model import Transformer
+    from .memory_transformer import MemoryTransformer
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +80,11 @@ class TransformerType(StrEnum):
     moe = "moe"
     """
     ➡️ :class:`MoETransformer`
+    """
+    
+    memory="memory"
+    """
+    ➡️ :class:`MemoryTransformer`
     """
 
 
@@ -284,6 +290,7 @@ class TransformerConfig(Config):
     init_std: float = 0.02
     freeze_params: Optional[List[str]] = None
     block_overrides: Optional[Dict[int, TransformerBlockConfig]] = None
+    num_persistent_tokens: Optional[int] = None
 
     def build(
         self,
@@ -297,12 +304,13 @@ class TransformerConfig(Config):
             distributed setting it usually makes sense to set this to "meta".
         """
         from .model import MoETransformer, NormalizedTransformer, Transformer
+        from .memory_transformer import MemoryTransformer
 
         log.info(
             f"Building transformer with {self.num_params:,d} total params, "
             f"{self.num_non_embedding_params:,d} non-embedding params"
         )
-        model: Transformer
+        model: Union[Transformer, MemoryTransformer]
         if self.name == TransformerType.default:  # COPY NEXT FOR MEMORY TRANSFORMER
             model = Transformer(
                 d_model=self.d_model,
@@ -316,6 +324,21 @@ class TransformerConfig(Config):
                 init_seed=self.init_seed,
                 init_std=self.init_std,
                 block_overrides=self.block_overrides,
+            )
+        elif self.name == TransformerType.memory:  # COPY NEXT FOR MEMORY TRANSFORMER
+            model = MemoryTransformer(
+                d_model=self.d_model,
+                vocab_size=self.vocab_size,
+                n_layers=self.n_layers,
+                block=self.block,
+                lm_head=self.lm_head,
+                dtype=self.dtype.as_pt(),
+                init_method=self.init_method,
+                init_device=init_device,
+                init_seed=self.init_seed,
+                init_std=self.init_std,
+                block_overrides=self.block_overrides,
+                num_persistent = self.num_persistent_tokens
             )
         elif self.name == TransformerType.normalized:
             model = NormalizedTransformer(
@@ -366,7 +389,7 @@ class TransformerConfig(Config):
             f"- {model.num_trainable_params:,d} trainable params"
         )
 
-        return model
+        return model # type: ignore
 
     @property
     def num_params(self) -> int:
