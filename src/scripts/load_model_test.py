@@ -1,6 +1,7 @@
 import sys
 import os
 from typing import Generator
+from tqdm import tqdm
 if "olmo_core" not in sys.path:
     sys.path.append("..")
 if not os.getcwd().endswith("src/scripts"):  # for VS Code debugging
@@ -57,6 +58,7 @@ USE_SW = True
 MAX_TOKENS = 128
 PROFILE_MEM = False
 NUM_PERSISTENT = 6
+TRAIN_MODEL = True
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
 MEMORY_LAYERS = [0, 1, 2, 3, 4] # Maximum number of memory layers I can have without crashing on 20gb 5/19
@@ -123,23 +125,19 @@ else:
 
 # Verifying the model
 sample_text = "The capital of France is"
-print(sample_text, end="")
 tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
- # model = hf_model  # to use HF model directly (for sanity check)
-inputs = tokenizer(sample_text, return_tensors="pt")
 
-# Move inputs to the chosen device
-input_token_ids = inputs["input_ids"].to(device)
-attention_mask = inputs.get("attention_mask", None)
-if attention_mask is not None:
-    attention_mask = attention_mask.to(device)
-
-
-def generate(model, input_ids, max_tokens=MAX_TOKENS, attention_mask=None) -> Generator[torch.types.Number, None, None]:
-    input_ids = input_ids.to(model.device)
-    generated_ids = input_ids
+def get_input_ids(text):
+    inputs = tokenizer(text, return_tensors="pt")
+    input_token_ids = inputs["input_ids"].to(device)
+    attention_mask = inputs.get("attention_mask", None)
     if attention_mask is not None:
-        attention_mask = attention_mask.to(model.device)
+        attention_mask = attention_mask.to(device)
+    return input_token_ids, attention_mask
+
+def generate(model, text, max_tokens=MAX_TOKENS) -> Generator[torch.types.Number, None, None]:
+    input_ids, attention_mask = get_input_ids(text)
+    generated_ids = input_ids
     model.eval()
     with torch.no_grad(), torch.amp.autocast('cuda', enabled=is_cuda):
         for i in range(max_tokens):
@@ -163,27 +161,50 @@ def generate(model, input_ids, max_tokens=MAX_TOKENS, attention_mask=None) -> Ge
             if next_token.item() == tokenizer.eos_token_id:
                 break
 
+if not TRAIN_MODEL:
+    print(sample_text, end="")
+    profiler = [ProfilerActivity.CPU, ProfilerActivity.CUDA] if is_cuda else[ProfilerActivity.CPU]
+    with profile(activities=profiler, profile_memory=True, record_shapes=True) as prof:
+        for token in generate(model, sample_text, max_tokens=MAX_TOKENS):
+            streamed_token = tokenizer.decode([token], skip_special_tokens=True)
+            print(streamed_token, end="", flush=True)
+            if token == tokenizer.eos_token:
+                break
+        print("[Max Tokens Reached]")
+    if PROFILE_MEM:
+        key = "self_cuda_memory_usage" if is_cuda else "self_cpu_memory_usage"
+        print(prof.key_averages().table(sort_by=key, row_limit=10))
+        print()
 
-profiler = [ProfilerActivity.CPU, ProfilerActivity.CUDA] if is_cuda else[ProfilerActivity.CPU]
-with profile(activities=profiler, profile_memory=True, record_shapes=True) as prof:
-    for token in generate(model, input_token_ids, max_tokens=MAX_TOKENS, attention_mask=attention_mask):
-        streamed_token = tokenizer.decode([token], skip_special_tokens=True)
-        print(streamed_token, end="", flush=True)
-        if token == tokenizer.eos_token:
-            break
-print("[Max Tokens Reached]")
-if PROFILE_MEM:
-    key = "self_cuda_memory_usage" if is_cuda else "self_cpu_memory_usage"
-    print(prof.key_averages().table(sort_by=key, row_limit=10))
-    print()
+    # output_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+    # print(output_text)
+    """
+    The capital of France is Paris. The French language is spoken in France. The French people are known as the French. The
+    French flag is red with a white cross on a blue background. The French flag is the same as the flag of the United States.
+    The French language is the same as the language of the United States. The French language is the same as the language of
+    the United States. The French language is the same as the language of the United States. The French language is the same
+    as the language of the United States. The French language is the same as the language of the United States. The French
+    language is the same as the language of the [max tokens reached]
+    """
+else:
 
-# output_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
-# print(output_text)
-"""
-The capital of France is Paris. The French language is spoken in France. The French people are known as the French. The
-French flag is red with a white cross on a blue background. The French flag is the same as the flag of the United States.
-The French language is the same as the language of the United States. The French language is the same as the language of
-the United States. The French language is the same as the language of the United States. The French language is the same
-as the language of the United States. The French language is the same as the language of the United States. The French
-language is the same as the language of the [max tokens reached]
-"""
+    def train_model_test():
+        train_str = "The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat."  # > 
+        input_ids, attention_mask = get_input_ids(train_str)
+
+        # since model hasn't been called yet, mlps haven't been initialized -> not in model.parameters()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+        ce_loss = torch.nn.CrossEntropyLoss()
+        model.train()
+
+        target = torch.nn.functional.one_hot(input_ids[:, 1:], num_classes=model_cfg.vocab_size).float()
+        x = input_ids[:, :-1].clone()
+        for i in tqdm(range(3)):
+            outputs = model(x, attention_mask=attention_mask)[:, NUM_PERSISTENT:, :]
+            loss = ce_loss(outputs, target)
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            print(f"Epoch {i}: Loss: {loss.item()}")
+
+    train_model_test()
