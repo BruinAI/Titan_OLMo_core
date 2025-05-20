@@ -1,7 +1,8 @@
 import torch
-from torch import gt, nn, unsqueeze
+from torch import nn, unsqueeze
 from torch.nn.functional import normalize
 from torch.func import functional_call, grad, vmap
+from wandb.cli import beta
 from xdist.scheduler import each
 if torch.cuda.is_available():
     from accelerated_scan.warp import scan  # can only be used on CUDA
@@ -25,6 +26,12 @@ def loss_one(model, param_dict, x, target):
 grad_one = grad(loss_one, argnums=1)  # takes the gradient of the loss w.r.t. the model parameters
 per_sample_grads = vmap(grad_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients
 
+def next_power_of_2(x: int) -> int:
+    if x < 1:
+        raise ValueError("Input must be a positive integer.")
+    return 1 << (x - 1).bit_length()  # Find the next power of 2 using bit manipulation
+
+
 class ParallelMLPs(nn.Module):
     """
     ParallelMLPs is a wrapper for multiple MLPs that allows for parallel processing of inputs with torch.compile.
@@ -41,6 +48,7 @@ class ParallelMLPs(nn.Module):
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
         return torch.stack(outputs, dim=0)
     
+    # TODO: add learned init weights, 0 weights cannot learn for mlp w/ >= 2 layers
     def init_weights(self):
         for mlp in self.mlps:
             for layer in mlp.parameters():
@@ -74,6 +82,7 @@ class NeuralMemory(nn.Module):
         torch.nn.init.xavier_uniform_(self.V.weight)
 
         self.alpha = alpha
+        self.beta = 1 - alpha
         self.eta = eta
         self.theta = theta
 
@@ -123,8 +132,14 @@ class NeuralMemory(nn.Module):
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
         queries = normalize(self.silu(self.Q(x)))
         return self.mlps_processor(queries)
+    
+    def update(self, x):
+        if x.shape[1] > 1:
+            return self.update_seq(x)
+        else:
+            return self.update_single(x)
         
-    def updatex(self, x):
+    def update_single(self, x):
         self.mlp_reset = False
         z = x.detach()
 
@@ -160,8 +175,7 @@ class NeuralMemory(nn.Module):
 
             return loss
     
-    # TODO: better understand scan channel formatting + optimize code (very slow)
-    def update(self, x):
+    def update_seq(self, x):
         self.mlp_reset = False
         z = x.detach()
 
@@ -173,33 +187,72 @@ class NeuralMemory(nn.Module):
             # Dict[parameter name] -> (seq len, *param shape)
             grads = per_sample_grads(self.mlps_processor, dict(self.mlps_processor.named_parameters()), keys, vals)  # type: ignore
             for (name, param), grad_name in zip(self.mlps_processor.named_parameters(), grads):  # type: ignore
-                grad = grads[grad_name]
-                if grad is None or name[0] in ['K', 'V']:
+                grad = grads[grad_name]  # getting grad: (T, *param shape)
+                if grad is None or name[0] in ['K', 'V']:  # skip K and V and not-computed grads
                     continue
-                unsqueezed = False
-                if len(grad.shape) == 2:
-                    grad = grad.unsqueeze(1)
-                    unsqueezed = True
-                # grad: (seq_len, *param shape)
-                if name not in self.surprise:
-                    self.surprise[name] = torch.zeros_like(grad)
-                base_surprise = self.surprise[name]
-                # surprises: s_t = eta * s_{t-1} - theta * grad
-                eta_t = torch.ones_like(grad, device=grad.device) * self.eta  # (seq_len, *param shape)
-                each_surprise = -grad * self.theta
-                assert eta_t.shape == each_surprise.shape, f"eta_t shape {eta_t.shape} != each_surprise shape {each_surprise.shape}"
-                surprises = scan(eta_t, each_surprise)
 
-                eta_cum_prod = torch.cumprod(eta_t, dim=0)  # not sure if this is parallel but also not sure if it matters
-                base_surprise = base_surprise * eta_cum_prod
-                surprises += base_surprise
+                # ================================================================
+                # Closed-form coefficients
+                # --------------------------------------------------------
+                #   p_t              = ∏_{i=0}^{t} β_i
+                #   q_t              = ∏_{i=0}^{t} η_i
+                #
+                #   w_k              =  (∏_{i=k+1}^{T-1} β_i) · (∏_{i=0}^{k} η_i)
+                #                     =  β_{k+1} β_{k+2} … β_{T-1} · η_0 η_1 … η_k
+                #
+                #   A_T              =  Σ_{k=0}^{T-1} w_k
+                #
+                #   B_{T,j}          =  (Σ_{k=j}^{T-1} w_k) · q_j⁻¹
+                #   D_{T,j}          =  q_T · q_j⁻¹
+                #
+                #   M_T (=param)     =  p_T·M_0  +  A_T·S_0  −  Σ_j θ·B_{T,j}·u_j
+                #   S_T (surprise)   =  q_T·S_0  −  Σ_j θ·D_{T,j}·u_j
+                # ================================================================
 
-                beta_t = torch.ones_like(surprises, device=grad.device) * (1 - self.alpha)  # (seq_len, *param shape)
-                assert beta_t.shape == surprises.shape, f"beta_t shape {beta_t.shape} != surprises shape {surprises.shape}"
-                updates = scan(beta_t, surprises)
-                if unsqueezed:
-                    updates = updates.squeeze(1)  # type: ignore
-                param.data = param.data + updates.sum(dim=0)  # type: ignore
-                self.surprise[name] = surprises[-1]
+                T = grad.size(0)                                       # length of sequence  (T, *)
+                device = grad.device
 
-            return 0
+                # ---------- constant-valued coefficient vectors ----------
+                beta_vec = torch.full((T,), self.beta, device=device)   # β_0 … β_{T-1}
+                eta_vec = torch.full((T,), self.eta,  device=device)    # η_0 … η_{T-1}
+                theta_vec = torch.full((T,), self.theta, device=device) # θ_0 … θ_{T-1}
+
+                # ---------- prefix / suffix cumulative products ----------
+                p_prefix = beta_vec.cumprod(0)                          # p_t  = β_0⋯β_t
+                p_suffix = beta_vec.flip(0).cumprod(0).flip(0)          # β_t⋯β_{T-1}
+
+                q_prefix = eta_vec.cumprod(0)                           # q_t  = η_0⋯η_t
+                q_suffix = eta_vec.flip(0).cumprod(0).flip(0)           # η_t⋯η_{T-1}
+
+                p_T = p_prefix[-1]                                      # final p_T  (scalar)
+                q_T = q_prefix[-1]                                      # final q_T  (scalar)
+
+                # ---------- w_k  (shape: T) ----------
+                w = (p_suffix / beta_vec) * q_prefix                    # β^{T-1-k} · η^{k+1}
+
+                # ---------- A_T (scalar) ----------
+                A_T = w.sum()
+
+                # ---------- B_{T,j}  (shape: T) ----------
+                partial_sum = torch.cumsum(w.flip(0), dim=0).flip(0)    # Σ_{k=j}^{T-1} w_k
+                B_coeffs = -theta_vec * partial_sum / q_prefix          # −θ · B_{T,j}
+
+                # ---------- D_{T,j}  (shape: T) ----------
+                D_coeffs = -theta_vec * q_suffix                        # −θ · D_{T,j}
+
+                # ---------- initial states ----------
+                M_0 = param.data                                        # (*param_shape)
+                S_0 = self.surprise.get(name, torch.zeros_like(param))  # (*param_shape)
+
+                # broadcast helper: reshape coeffs to (T, 1, 1, …)
+                expand = lambda v: v.view(T, *([1] * M_0.dim()))
+
+                # ---------- final memory  M_T ----------
+                gradient_term = (grad * expand(B_coeffs)).sum(dim=0)    # Σ −θ B u
+                param.data = p_T * M_0 + A_T * S_0 + gradient_term      # M_T
+
+                # ---------- updated surprise  S_T ----------
+                surprise_term = (grad * expand(D_coeffs)).sum(dim=0)    # Σ −θ D u
+                self.surprise[name] = q_T * S_0 + surprise_term         # S_T              
+
+            return 0  # TODO: return loss?
