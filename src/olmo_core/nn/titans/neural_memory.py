@@ -2,6 +2,7 @@ import torch
 from torch import nn, unsqueeze
 from torch.nn.functional import normalize
 from torch.func import functional_call, grad, vmap
+from wandb.cli import beta
 from xdist.scheduler import each
 if torch.cuda.is_available():
     from accelerated_scan.ref import scan  # Temp changed from warp to ref to test memory
@@ -26,11 +27,9 @@ grad_one = grad(loss_one, argnums=1)  # takes the gradient of the loss w.r.t. th
 per_sample_grads = vmap(grad_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients
 
 def next_power_of_2(x: int) -> int:
-    """Find the next power of 2 that's at least 32. Associative Scan demands at least 32 on CUDA"""
     if x < 1:
         raise ValueError("Input must be a positive integer.")
-    power_of_2 = 1 << (x - 1).bit_length()
-    return max(power_of_2, 2)  # Ensure minimum length of 2
+    return 1 << (x - 1).bit_length()  # Find the next power of 2 using bit manipulation
 
 
 class ParallelMLPs(nn.Module):
@@ -85,6 +84,7 @@ class NeuralMemory(nn.Module):
         torch.nn.init.xavier_uniform_(self.V.weight)
 
         self.alpha = alpha
+        self.beta = 1 - alpha
         self.eta = eta
         self.theta = theta
 
@@ -189,66 +189,76 @@ class NeuralMemory(nn.Module):
         keys = normalize(self.silu(self.K(z)))
         vals = normalize(self.silu(self.V(z)))
 
-        with torch.enable_grad():
-            # compute per-sample gradients: dict[name] → (seq_len, *param_shape)
-            grads = per_sample_grads(
-                self.mlps_processor,
-                dict(self.mlps_processor.named_parameters()),   # type:ignore
-                keys,
-                vals,
-            )
-
-            for (name, param), grad_name in zip(
-                self.mlps_processor.named_parameters(), grads   # type:ignore
-            ):
-                grad = grads[grad_name]  # (T, ...)
-                if grad is None or name[0] in ['K', 'V']:
+        with torch.enable_grad():  # Enable gradients for this specific block
+            # Dict[parameter name] -> (seq len, *param shape)
+            grads = per_sample_grads(self.mlps_processor, dict(self.mlps_processor.named_parameters()), keys, vals)  # type: ignore
+            for (name, param), grad_name in zip(self.mlps_processor.named_parameters(), grads):  # type: ignore
+                grad = grads[grad_name]  # getting grad: (T, *param shape)
+                if grad is None or name[0] in ['K', 'V']:  # skip K and V and not-computed grads
                     continue
 
-                # ------ reshape to (*param_shape, T) -------
-                squeezed = False
-                if grad.ndim == 2:  # (T, hidden_dim) → (T, 1, hidden_dim)
-                    grad = grad.unsqueeze(1)
-                    squeezed = True
-                # move time-axis (0) to the last dim:
-                perm = list(range(1, grad.ndim)) + [0]
-                grad = grad.permute(*perm)  # now shape (*param_shape, T)
+                # ================================================================
+                # Closed-form coefficients
+                # --------------------------------------------------------
+                #   p_t              = ∏_{i=0}^{t} β_i
+                #   q_t              = ∏_{i=0}^{t} η_i
+                #
+                #   w_k              =  (∏_{i=k+1}^{T-1} β_i) · (∏_{i=0}^{k} η_i)
+                #                     =  β_{k+1} β_{k+2} … β_{T-1} · η_0 η_1 … η_k
+                #
+                #   A_T              =  Σ_{k=0}^{T-1} w_k
+                #
+                #   B_{T,j}          =  (Σ_{k=j}^{T-1} w_k) · q_j⁻¹
+                #   D_{T,j}          =  q_T · q_j⁻¹
+                #
+                #   M_T (=param)     =  p_T·M_0  +  A_T·S_0  −  Σ_j θ·B_{T,j}·u_j
+                #   S_T (surprise)   =  q_T·S_0  −  Σ_j θ·D_{T,j}·u_j
+                # ================================================================
 
-                # ------ closed-form coefficients -------------
-                T = grad.shape[-1]
-                device, dtype = grad.device, grad.dtype
-                p = 1.0 - self.alpha
-                η = self.eta
-                θ = self.theta
+                T = grad.size(0)                                       # length of sequence  (T, *)
+                device = grad.device
 
-                # time indices 1…T
-                ar = torch.arange(1, T+1, device=device, dtype=dtype)
+                # ---------- constant-valued coefficient vectors ----------
+                beta_vec = torch.full((T,), self.beta, device=device)   # β_0 … β_{T-1}
+                eta_vec = torch.full((T,), self.eta,  device=device)    # η_0 … η_{T-1}
+                theta_vec = torch.full((T,), self.theta, device=device) # θ_0 … θ_{T-1}
 
-                # powers of p and η
-                p_t = p ** T
-                η_t = η ** T
-                pows_p   = p ** ar        # [p¹, p², …, pᵀ]
-                pows_η   = η ** ar        # [η¹, η², …, ηᵀ]
+                # ---------- prefix / suffix cumulative products ----------
+                p_prefix = beta_vec.cumprod(0)                          # p_t  = β_0⋯β_t
+                p_suffix = beta_vec.flip(0).cumprod(0).flip(0)          # β_t⋯β_{T-1}
 
-                # base states
-                M0 = param.data                            # (*param_shape)
-                S0 = self.surprise.get(name, torch.zeros_like(M0))
+                q_prefix = eta_vec.cumprod(0)                           # q_t  = η_0⋯η_t
+                q_suffix = eta_vec.flip(0).cumprod(0).flip(0)           # η_t⋯η_{T-1}
 
-                # 1) final surprise:  S_T = ηᵀ S₀  − θ Σ_{j=1}ᵀ η^{T−j} grad_j
-                S_coeffs = η ** (T - ar)                   # [η^{T−1}, η^{T−2}, …, η⁰]
-                S_sum    = torch.sum(S_coeffs * grad, dim=-1)
-                S_T      = η_t * S0 - θ * S_sum
+                p_T = p_prefix[-1]                                      # final p_T  (scalar)
+                q_T = q_prefix[-1]                                      # final q_T  (scalar)
 
-                # 2) final memory:   M_T = pᵀ M₀
-                #                 + η (pᵀ − ηᵀ)/(p−η) · S₀
-                #                 − θ Σ_{j=1}ᵀ (p^{T−j+1}−η^{T−j+1})/(p−η) · grad_j
-                A_pref   = η * (p_t - η_t) / (p - η)        # scalar
-                coeffs   = (pows_p - pows_η) / (p - η)     # shape (T,)
-                M_sum    = torch.sum(coeffs * grad, dim=-1)
-                M_T      = p_t * M0 + A_pref * S0 - θ * M_sum
+                # ---------- w_k  (shape: T) ----------
+                w = (p_suffix / beta_vec) * q_prefix                    # β^{T-1-k} · η^{k+1}
 
-                # write back
-                self.surprise[name] = S_T
-                param.data = M_T if not squeezed else M_T.squeeze(1)
+                # ---------- A_T (scalar) ----------
+                A_T = w.sum()
 
-            return 0  # or return whatever you need
+                # ---------- B_{T,j}  (shape: T) ----------
+                partial_sum = torch.cumsum(w.flip(0), dim=0).flip(0)    # Σ_{k=j}^{T-1} w_k
+                B_coeffs = -theta_vec * partial_sum / q_prefix          # −θ · B_{T,j}
+
+                # ---------- D_{T,j}  (shape: T) ----------
+                D_coeffs = -theta_vec * q_suffix                        # −θ · D_{T,j}
+
+                # ---------- initial states ----------
+                M_0 = param.data                                        # (*param_shape)
+                S_0 = self.surprise.get(name, torch.zeros_like(param))  # (*param_shape)
+
+                # broadcast helper: reshape coeffs to (T, 1, 1, …)
+                expand = lambda v: v.view(T, *([1] * M_0.dim()))
+
+                # ---------- final memory  M_T ----------
+                gradient_term = (grad * expand(B_coeffs)).sum(dim=0)    # Σ −θ B u
+                param.data = p_T * M_0 + A_T * S_0 + gradient_term      # M_T
+
+                # ---------- updated surprise  S_T ----------
+                surprise_term = (grad * expand(D_coeffs)).sum(dim=0)    # Σ −θ D u
+                self.surprise[name] = q_T * S_0 + surprise_term         # S_T              
+
+            return 0  # TODO: return loss?
