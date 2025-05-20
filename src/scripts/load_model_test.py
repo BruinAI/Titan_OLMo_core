@@ -58,7 +58,7 @@ MAX_TOKENS = 128
 PROFILE_MEM = False
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
-MEMORY_LAYERS = [0, ] # Maximum number of memory layers I can have without crashing on 20gb 5/19
+MEMORY_LAYERS = [0, 1, 2, 3, 4] # Maximum number of memory layers I can have without crashing on 20gb 5/19
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}

@@ -40,6 +40,7 @@ class ParallelMLPs(nn.Module):
     def __init__(self, mlp_list: List[nn.Module]):
         super().__init__()
         self.mlps = nn.ModuleList(mlp_list)
+        self.init_weights()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[0] != len(self.mlps):
@@ -47,16 +48,17 @@ class ParallelMLPs(nn.Module):
                 f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
             )
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
+        
         return torch.stack(outputs, dim=0)
     
     # TODO: add learned init weights, 0 weights cannot learn for mlp w/ >= 2 layers
-    def init_weights(self):
+    def init_weights(self, mean=0, std=10):
         for mlp in self.mlps:
-            for layer in mlp.parameters():
+            for layer in mlp.modules():  # Iterate through modules, not parameters
                 if isinstance(layer, nn.Linear):
-                    torch.nn.init.zeros_(layer.weight)
+                    torch.nn.init.normal_(layer.weight, mean=mean, std=std)
                     if layer.bias is not None:
-                        torch.nn.init.zeros_(layer.bias)
+                        torch.nn.init.normal_(layer.bias, mean=mean, std=std)
 
 class NeuralMemory(nn.Module):
     """
@@ -117,6 +119,7 @@ class NeuralMemory(nn.Module):
             )
             mlps.append(mlp)  # adding the mlp to the list
         parallel_mlps = ParallelMLPs(mlps).to(device)
+        parallel_mlps.init_weights(mean=0, std=10) 
         self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
 
     def reset_mlps(self):
@@ -186,59 +189,66 @@ class NeuralMemory(nn.Module):
         keys = normalize(self.silu(self.K(z)))
         vals = normalize(self.silu(self.V(z)))
 
-        with torch.enable_grad():  # Enable gradients for this specific block
-            # Dict[parameter name] -> (seq len, *param shape)
-            grads = per_sample_grads(self.mlps_processor, dict(self.mlps_processor.named_parameters()), keys, vals)  # type: ignore
-            for (name, param), grad_name in zip(self.mlps_processor.named_parameters(), grads):  # type: ignore
-                grad = grads[grad_name]  # getting grad: (seq_len, *param shape)
-                if grad is None or name[0] in ['K', 'V']:  # skip K and V and not-computed grads
+        with torch.enable_grad():
+            # compute per-sample gradients: dict[name] → (seq_len, *param_shape)
+            grads = per_sample_grads(
+                self.mlps_processor,
+                dict(self.mlps_processor.named_parameters()),
+                keys,
+                vals,
+            )
+
+            for (name, param), grad_name in zip(
+                self.mlps_processor.named_parameters(), grads
+            ):
+                grad = grads[grad_name]  # (T, ...)
+                if grad is None or name[0] in ['K', 'V']:
                     continue
 
-                # checking if grad is 2D (like biases) and converting to 3D for scan
-                unsqueezed = False
-                if len(grad.shape) == 2:  # (seq_len, hidden_dim)
-                    grad = grad.unsqueeze(1)  # (seq_len, 1, hidden_dim)
-                    unsqueezed = True
-                grad = grad.permute(1, 2, 0)  # (*param shape, seq_len)
+                # ------ reshape to (*param_shape, T) -------
+                squeezed = False
+                if grad.ndim == 2:  # (T, hidden_dim) → (T, 1, hidden_dim)
+                    grad = grad.unsqueeze(1)
+                    squeezed = True
+                # move time-axis (0) to the last dim:
+                perm = list(range(1, grad.ndim)) + [0]
+                grad = grad.permute(*perm)  # now shape (*param_shape, T)
 
-                # 
-                seq_len = grad.shape[-1]
-                pad_seq_len = next_power_of_2(seq_len)  # find the next power of 2
-                if pad_seq_len > seq_len:
-                    pad = torch.zeros(grad.shape[0], grad.shape[1], pad_seq_len - seq_len, device=grad.device)
-                    grad = torch.cat([grad, pad], dim=-1)
+                # ------ closed-form coefficients -------------
+                T = grad.shape[-1]
+                device, dtype = grad.device, grad.dtype
+                p = 1.0 - self.alpha
+                η = self.eta
+                θ = self.theta
 
-                
-                base_surprise = self.surprise.get(name, torch.zeros_like(grad))  # (*param shape, seq_len)
-                eta_t = torch.ones_like(grad, device=grad.device) * self.eta  # (*param shape, seq_len)
-                each_surprise = -grad * self.theta  # multiplying by -theta to scale grads according to the formula
-                # surprises: s_t = eta * s_{t-1} - theta * grad
-                # SCAN EXPECTS INPUTS OF (B, C, T) and OUTPUTS (B, C, T)
-                surprises = scan(eta_t, each_surprise)  # (*param shape, seq_len)
+                # time indices 1…T
+                ar = torch.arange(1, T+1, device=device, dtype=dtype)
 
-                # Adding the base surprise to the surprises and storing results
-                eta_cumprod = torch.cumprod(eta_t, dim=0)
-                base_surprise = base_surprise * eta_cumprod
-                surprises += base_surprise
-                self.surprise[name] = surprises[-1]
+                # powers of p and η
+                p_t = p ** T
+                η_t = η ** T
+                pows_p   = p ** ar        # [p¹, p², …, pᵀ]
+                pows_η   = η ** ar        # [η¹, η², …, ηᵀ]
 
-                # calculating the updates
-                beta_t = torch.ones_like(surprises, device=grad.device) * (1 - self.alpha)  # (*param shape, seq_len)
-                updates = scan(beta_t, surprises)
+                # base states
+                M0 = param.data                            # (*param_shape)
+                S0 = self.surprise.get(name, torch.zeros_like(M0))
 
-                # squeezing the updates if they are 2D (like biases), (hidden_dim, 1, seq_len) -> (hidden_dim, seq_len)
-                if unsqueezed:
-                    updates = updates.squeeze(1)  # type: ignore
-                    beta_t = beta_t.squeeze(1)  # squeeze beta_t as well for cumprod update
-                
-                # Adding the base memory to the updates and storing results
-                beta_cumprod = torch.cumprod(beta_t, dim=-1)
-                expanded_base_memory = param.data.unsqueeze(-1).expand_as(beta_cumprod)  # (*param shape, seq_len)
-                base_memory = expanded_base_memory * beta_cumprod
-                update_data = base_memory + updates  # type: ignore
-                if seq_len < pad_seq_len:
-                    update_data = update_data[..., :seq_len]
-                param.data = update_data.sum(dim=-1)  # type: ignore
-                
+                # 1) final surprise:  S_T = ηᵀ S₀  − θ Σ_{j=1}ᵀ η^{T−j} grad_j
+                S_coeffs = η ** (T - ar)                   # [η^{T−1}, η^{T−2}, …, η⁰]
+                S_sum    = torch.sum(S_coeffs * grad, dim=-1)
+                S_T      = η_t * S0 - θ * S_sum
 
-            return 0  # TODO: return loss?
+                # 2) final memory:   M_T = pᵀ M₀
+                #                 + η (pᵀ − ηᵀ)/(p−η) · S₀
+                #                 − θ Σ_{j=1}ᵀ (p^{T−j+1}−η^{T−j+1})/(p−η) · grad_j
+                A_pref   = η * (p_t - η_t) / (p - η)        # scalar
+                coeffs   = (pows_p - pows_η) / (p - η)     # shape (T,)
+                M_sum    = torch.sum(coeffs * grad, dim=-1)
+                M_T      = p_t * M0 + A_pref * S0 - θ * M_sum
+
+                # write back
+                self.surprise[name] = S_T
+                param.data = M_T if not squeezed else M_T.squeeze(1)
+
+            return 0  # or return whatever you need
