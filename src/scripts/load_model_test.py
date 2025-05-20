@@ -24,7 +24,7 @@ from torch.profiler import profile, ProfilerActivity
 from pathlib import Path
 from olmo_core.distributed.checkpoint import unshard_checkpoint
 from transformers import AutoTokenizer
-from olmo_core.nn.transformer.config import TransformerConfig, TransformerBlockType, MemoryConfig
+from olmo_core.nn.transformer.config import TransformerConfig, TransformerBlockType, MemoryConfig, TransformerBlockConfig
 from olmo_core.nn.attention import SlidingWindowAttentionConfig
 from olmo_core.distributed.checkpoint import load_model_and_optim_state
 from olmo_core.data.tokenizer import TokenizerConfig
@@ -53,16 +53,38 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 """
 
 USE_MAG = True
-USE_SW = False
+USE_SW = True
 MAX_TOKENS = 128
 PROFILE_MEM = False
+
+# Layers that should use memory (e.g., only layers 0, 5, 10)
+MEMORY_LAYERS = [0, 1, 2, 3, 4, 5, 6, 7, 8] # Maximum number of memory layers I can have without crashing on 20gb 5/19
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}
 memory_config = MemoryConfig()
+
 if USE_MAG:
-    kwargs["block_name"] = TransformerBlockType.mag_reordered_norm
-    kwargs["memory_config"] = memory_config
+    if MEMORY_LAYERS == "all":
+        # Apply to all layers (current behavior)
+        kwargs["block_name"] = TransformerBlockType.mag_reordered_norm
+        kwargs["memory_config"] = memory_config
+    else:
+        # Apply only to specific layers
+        kwargs["block_name"] = TransformerBlockType.reordered_norm
+        block_overrides = {}
+        
+        # Create block configs for specific memory layers
+        for layer_idx in MEMORY_LAYERS:
+            block_overrides[layer_idx] = TransformerBlockConfig(
+                name=TransformerBlockType.mag_reordered_norm,
+                attention=None,  # Will be filled by the config system
+                layer_norm=None,  # Will be filled by the config system
+                feed_forward=None,  # Will be filled by the config system
+                memory_config=memory_config
+            )
+        kwargs["block_overrides"] = block_overrides
+
 if USE_SW:
     kwargs["sliding_window"] = SlidingWindowAttentionConfig(pattern=[True], window_size=memory_config.window_size)
     kwargs["use_flash"] = True

@@ -5,7 +5,7 @@ from torch.func import functional_call, grad, vmap
 from wandb.cli import beta
 from xdist.scheduler import each
 if torch.cuda.is_available():
-    from accelerated_scan.warp import scan  # can only be used on CUDA
+    from accelerated_scan.ref import scan  # Temp changed from warp to ref to test memory
 else:
     from accelerated_scan.ref import scan
 from typing import List
@@ -39,6 +39,7 @@ class ParallelMLPs(nn.Module):
     def __init__(self, mlp_list: List[nn.Module]):
         super().__init__()
         self.mlps = nn.ModuleList(mlp_list)
+        self.init_weights()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[0] != len(self.mlps):
@@ -46,16 +47,17 @@ class ParallelMLPs(nn.Module):
                 f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
             )
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
+        
         return torch.stack(outputs, dim=0)
     
     # TODO: add learned init weights, 0 weights cannot learn for mlp w/ >= 2 layers
-    def init_weights(self):
+    def init_weights(self, mean=0., std=.02):
         for mlp in self.mlps:
-            for layer in mlp.parameters():
+            for layer in mlp.modules():  # Iterate through modules, not parameters
                 if isinstance(layer, nn.Linear):
-                    torch.nn.init.zeros_(layer.weight)
+                    torch.nn.init.normal_(layer.weight, mean=mean, std=std)
                     if layer.bias is not None:
-                        torch.nn.init.zeros_(layer.bias)
+                        torch.nn.init.normal_(layer.bias, mean=mean, std=std)
 
 class NeuralMemory(nn.Module):
     """
@@ -92,6 +94,9 @@ class NeuralMemory(nn.Module):
     # Ideally only called once, compiling slows it down, pad inputs instead
     def init_mlp(self, batch_size):
         del self.mlps_processor
+        
+        device = next(self.parameters()).device # Adding CUDA support
+        
         mlps = []
         for i in range(batch_size):
             # Building the layers in the MLP
@@ -113,7 +118,8 @@ class NeuralMemory(nn.Module):
                 *layers
             )
             mlps.append(mlp)  # adding the mlp to the list
-        parallel_mlps = ParallelMLPs(mlps)
+        parallel_mlps = ParallelMLPs(mlps).to(device)
+        parallel_mlps.init_weights(mean=0, std=0.02) 
         self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
 
     def reset_mlps(self):

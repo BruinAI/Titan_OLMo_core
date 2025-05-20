@@ -303,7 +303,7 @@ class TransformerConfig(Config):
             f"{self.num_non_embedding_params:,d} non-embedding params"
         )
         model: Transformer
-        if self.name == TransformerType.default:
+        if self.name == TransformerType.default:  # COPY NEXT FOR MEMORY TRANSFORMER
             model = Transformer(
                 d_model=self.d_model,
                 vocab_size=self.vocab_size,
@@ -933,6 +933,9 @@ class TransformerConfig(Config):
         transformer_block_kwargs = {}
         if block_name == TransformerBlockType.mag_reordered_norm:
             transformer_block_kwargs["memory_config"] = kwargs.pop("memory_config", MemoryConfig())
+            
+        block_overrides = kwargs.pop("block_overrides", None)
+        
         block = TransformerBlockConfig(
             name=block_name,
             attention=AttentionConfig(
@@ -951,6 +954,18 @@ class TransformerConfig(Config):
             layer_norm=layer_norm,
             **transformer_block_kwargs,
         )
+        
+        if block_overrides:
+            # Make sure all blocks have required fields filled in using values from the default block
+            for layer_idx, block_config in block_overrides.items():
+                if block_config.attention is None:
+                    block_config.attention = block.attention
+                if block_config.feed_forward is None:
+                    block_config.feed_forward = block.feed_forward
+                if block_config.layer_norm is None:
+                    block_config.layer_norm = block.layer_norm
+                if block_config.feed_forward_moe is None:
+                    block_config.feed_forward_moe = block.feed_forward_moe
 
         return cls(
             d_model=d_model,
@@ -959,6 +974,7 @@ class TransformerConfig(Config):
             block=block,
             lm_head=LMHeadConfig(layer_norm=layer_norm, bias=False, dtype=dtype),
             dtype=dtype,
+            block_overrides=block_overrides,
         )
 
     @classmethod
