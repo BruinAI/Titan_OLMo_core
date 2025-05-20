@@ -9,8 +9,11 @@ if torch.cuda.is_available():
 else:
     from accelerated_scan.ref import scan
 from typing import List
+from .memory_profiling import log_memory, measure_memory, reset_peak_stats
 
+log_memory("Starting neural memory profiling", clear_file=True)
 
+@measure_memory
 def loss_one(model, param_dict, x, target):
     """
     Loss for each index in seq
@@ -37,10 +40,13 @@ class ParallelMLPs(nn.Module):
     ParallelMLPs is a wrapper for multiple MLPs that allows for parallel processing of inputs with torch.compile.
     """
     def __init__(self, mlp_list: List[nn.Module]):
+        log_memory(f"ParallelMLPs.__init__ START with {len(mlp_list)} MLPs")
         super().__init__()
         self.mlps = nn.ModuleList(mlp_list)
         self.init_weights()
+        log_memory(f"ParallelMLPs.__init__ END with {len(mlp_list)} MLPs")
 
+    @measure_memory(name="ParallelMLPs.forward")
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[0] != len(self.mlps):
             raise ValueError(
@@ -50,7 +56,9 @@ class ParallelMLPs(nn.Module):
         
         return torch.stack(outputs, dim=0)
     
+    
     # TODO: add learned init weights, 0 weights cannot learn for mlp w/ >= 2 layers
+    @measure_memory(name="ParallelMLPs.init_weights")
     def init_weights(self, mean=0., std=.02):
         for mlp in self.mlps:
             for layer in mlp.modules():  # Iterate through modules, not parameters
@@ -67,6 +75,7 @@ class NeuralMemory(nn.Module):
     """
 
     def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32, alpha = 0.999, eta = 0.60, theta = 0.05):
+        log_memory(f"NeuralMemory.__init__ START (emb_dim={emb_dim}, hidden_dim={hidden_dim})")
         super().__init__()
 
         # Define the layers of the network
@@ -90,14 +99,20 @@ class NeuralMemory(nn.Module):
 
         self.silu = nn.SiLU()
         self.surprise = {}
+        log_memory(f"NeuralMemory.__init__ END")
 
     # Ideally only called once, compiling slows it down, pad inputs instead
+    @measure_memory(name="NeuralMemory.init_mlp")
     def init_mlp(self, batch_size):
+        log_memory(f"init_mlp START with batch_size={batch_size}")
         del self.mlps_processor
         
         device = next(self.parameters()).device # Adding CUDA support
+        log_memory("Before creating MLPs")
         
         mlps = []
+        total_params = 0
+        param_count = 0
         for i in range(batch_size):
             # Building the layers in the MLP
             if self.n_layers == 1:
@@ -113,45 +128,66 @@ class NeuralMemory(nn.Module):
                         nn.SiLU()
                     ]
                 layers.append(nn.Linear(self.hidden_dim, self.emb_dim))
+                param_count = 2*self.hidden_dim * self.emb_dim
             # Create the MLP as a sequential model
+            total_params += param_count
             mlp = nn.Sequential(
                 *layers
             )
             mlps.append(mlp)  # adding the mlp to the list
+        log_memory(f"Created all {batch_size} MLPs, total params in all MLPs: {total_params}")
+        
+        log_memory("Before creating ParallelMLPs")
         parallel_mlps = ParallelMLPs(mlps).to(device)
+        log_memory("After creating ParallelMLPs and moving to device")
         parallel_mlps.init_weights(mean=0, std=0.02) 
-        self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
+        log_memory("After initializing ParallelMLPs weights")
+        log_memory("Before torch.compile")
+        self.mlps_processor = torch.compile(parallel_mlps)# type: ignore
+        peak = torch.cuda.max_memory_allocated() / (1024**3) if torch.cuda.is_available() else 0
+        log_memory(f"After torch.compile - Peak during compilation: {peak:.4f}GB")
+        log_memory(f"init_mlp END")
 
+    @measure_memory(name="NeuralMemory.reset_mlps")
     def reset_mlps(self):
         if self.mlps_processor is not None:
             self.mlps_processor.init_weights()  # type: ignore
             self.mlp_reset = True
 
+    @measure_memory(name="NeuralMemory.retrieve")
     def retrieve(self, x, new_params=None):
         if new_params is None:
             return self.forward(x)  # same thing as functional_call just clearer code
         else:
             return functional_call(self, dict(self.named_parameters()), x)
 
+    @measure_memory(name="NeuralMemory.forward")
     def forward(self, x):
         if self.mlps_processor is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
         queries = normalize(self.silu(self.Q(x)))
         return self.mlps_processor(queries)
     
+    @measure_memory(name="NeuralMemory.update")
     def update(self, x):
+        log_memory(f"update with x.shape={x.shape}")
         if x.shape[1] > 1:
+            log_memory("Redirecting to update_seq")
             return self.update_seq(x)
         else:
+            log_memory("Redirecting to update_single")
             return self.update_single(x)
         
+    @measure_memory(name="NeuralMemory.update_single")
     def update_single(self, x):
         self.mlp_reset = False
         z = x.detach()
 
         # Evaluate the corresponding keys and values
+        log_memory("Before computing keys and values")
         keys = normalize(self.silu(self.K(z)))
         vals = normalize(self.silu(self.V(z)))
+        log_memory("After computing keys and values")
 
         with torch.enable_grad():  # Enable gradients for this specific block
             # Propagate the keys through the model
@@ -162,15 +198,26 @@ class NeuralMemory(nn.Module):
             3. calculate M_t = (1-alpha_t) * M_{t-1} + S_t
             """
 
+            log_memory("Before forward pass")
             keys = self.forward(keys)
+            log_memory("After forward pass")
 
             # Calculate the loss || M(keys) - vals ||_2 ^2
+            log_memory("Before loss calculation")
             loss = ((keys - vals) ** 2).mean(axis=0).sum()
+            log_memory("After loss calculation")
 
             # Compute gradients of aux loss w.r.t. NMM's parameters
             # Ensure parameters of NeuralMemory (self.K, self.V, self.layers) have requires_grad=True
+            log_memory("Before autograd.grad")
+            reset_peak_stats()
             grads = torch.autograd.grad(loss, self.parameters(), allow_unused=True)  # type: ignore
-
+            
+            peak = torch.cuda.max_memory_allocated() / (1024**3) if torch.cuda.is_available() else 0
+            log_memory(f"After autograd.grad - Peak during grad: {peak:.4f}GB")
+            
+            
+            log_memory("Before parameter updates")
             for (name, param), grad in zip(self.named_parameters(), grads):
                 if grad is None or name[0] in ['K', 'V']:
                     continue
@@ -178,7 +225,8 @@ class NeuralMemory(nn.Module):
                     self.surprise[name] = torch.zeros_like(grad)
                 self.surprise[name] = self.surprise[name] * self.eta - self.theta * grad
                 param.data = self.alpha * param.data + self.surprise[name]
-
+            
+            log_memory("After parameter updates")
             return loss
     
     def update_seq(self, x):

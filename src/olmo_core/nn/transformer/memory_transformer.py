@@ -108,6 +108,8 @@ class MemoryTransformer(nn.Module):
         self.dtype = dtype
         self.num_persistent = num_persistent
         
+        ######################## Modified For Memory #################################
+        
         self.persistent_token_embeddings = nn.Parameter(
             torch.empty(self.num_persistent, self.d_model, dtype=self.dtype)
         )
@@ -115,6 +117,8 @@ class MemoryTransformer(nn.Module):
         # You might want to use a specific method from self.init_method or a custom initialization.
         # For minimality, we use a similar approach to standard embedding initialization.
         nn.init.normal_(self.persistent_token_embeddings, mean=0.0, std=init_std)
+        
+        ################################################################################
 
         self.embeddings = nn.Embedding(vocab_size, d_model, dtype=dtype, device=init_device)
         self.blocks = nn.ModuleDict()
@@ -450,6 +454,8 @@ class MemoryTransformer(nn.Module):
             **kwargs,
         )
         
+        ########################### Modified For Memory ##########################################
+        
         sequence_embeds = self.embeddings(input_ids) if self.embeddings is not None else input_ids
         batch_size = sequence_embeds.size(0)
         expanded_persistent_embeds = self.persistent_token_embeddings.unsqueeze(0).expand(
@@ -458,6 +464,7 @@ class MemoryTransformer(nn.Module):
         # Get embeddings but pass-through for non-existent layers to allow easy
         # pipeline parallel configuration.
         h = torch.cat([expanded_persistent_embeds, sequence_embeds], dim=1)
+        
 
         # Run each block.
         for block in self.blocks.values():
@@ -490,6 +497,8 @@ class MemoryTransformer(nn.Module):
             return self.lm_head(h, **lm_head_kwargs)
         else:
             return h
+        
+        #############################################################################################
 
     def apply_fp8(self, float8_config: Float8Config):
         """
