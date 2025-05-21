@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn.functional import normalize
-from torch.func import functional_call, grad, vmap
+from torch.func import functional_call, grad, grad_and_value, vmap
 from typing import List
 
 
@@ -17,9 +17,9 @@ def loss_one(model, param_dict, x, target):
     logits = functional_call(model, param_dict, x)
     return nn.functional.mse_loss(logits, target)
 
-grad_one = grad(loss_one, argnums=1)  # takes the gradient of the loss w.r.t. the model parameters
-per_sample_grads = vmap(grad_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients
-
+grad_and_loss_one = grad_and_value(loss_one, argnums=1)  # takes the gradient and value of the loss w.r.t. the model parameters
+per_sample_grads_and_losses = vmap(grad_and_loss_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients and value
+compiled_per_sample_grads_and_losses = torch.compile(per_sample_grads_and_losses, fullgraph=True)  # compile the function for better performance
 
 class ParallelMLPs(nn.Module):
     """
@@ -56,9 +56,83 @@ class ParallelMLPs(nn.Module):
                             f"Instance parameter {name} (cleaned: {clean_name}) not found in template weights "
                             f"during reset. Ensure MLP structures remain consistent."
                         )
+    
+    # @torch.compile(fullgraph=True)
+    def update_memory(self, surprise, keys, values, beta_vec, eta_vec, theta_vec):
+        with torch.enable_grad():  # Enable gradients for this specific block
+            # Dict[parameter name] -> (seq len, *param shape)
+            # grads, losses = per_sample_grads_and_losses(self, dict(self.named_parameters()), keys, values)
+            grads, losses = compiled_per_sample_grads_and_losses(self, dict(self.named_parameters()), keys, values)
+            for (name, param), grad_name in zip(self.named_parameters(), grads):
+                grad = grads[grad_name]  # getting grad: (T, *param shape)
+                if grad is None:
+                    continue
+                # ================================================================
+                # Recurrence definitions (for context)
+                # --------------------------------------------------------
+                #   S_t = η_t · S_{t-1} − θ_t · u_t
+                #   M_t = (1 − α_t) · M_{t-1} + S_t
+                # --------------------------------------------------------
+                # Closed-form coefficients
+                # --------------------------------------------------------
+                #   p_t              = ∏_{i=0}^{t} β_i
+                #   q_t              = ∏_{i=0}^{t} η_i
+                #
+                #   w_k              =  (∏_{i=k+1}^{T-1} β_i) · (∏_{i=0}^{k} η_i)
+                #                     =  β_{k+1} β_{k+2} … β_{T-1} · η_0 η_1 … η_k
+                #
+                #   A_T              =  Σ_{k=0}^{T-1} w_k
+                #
+                #   B_{T,j}          =  (Σ_{k=j}^{T-1} w_k) · q_j⁻¹
+                #   D_{T,j}          =  q_T · q_j⁻¹
+                #
+                #   M_T (=param)     =  p_T·M_0  +  A_T·S_0  −  Σ_j θ·B_{T,j}·u_j
+                #   S_T (surprise)   =  q_T·S_0  −  Σ_j θ·D_{T,j}·u_j
+                # ================================================================
+
+                T = grad.size(0)                                        # length of sequence  (T, *)
+
+                # ---------- prefix / suffix cumulative products ----------
+                p_prefix = beta_vec.cumprod(0)                          # p_t  = β_0⋯β_t
+                p_suffix = beta_vec.flip(0).cumprod(0).flip(0)          # β_t⋯β_{T-1}
+
+                q_prefix = eta_vec.cumprod(0)                           # q_t  = η_0⋯η_t
+                q_suffix = eta_vec.flip(0).cumprod(0).flip(0)           # η_t⋯η_{T-1}
+
+                p_T = p_prefix[-1]                                      # final p_T  (scalar)
+                q_T = q_prefix[-1]                                      # final q_T  (scalar)
+
+                # ---------- w_k  (shape: T) ----------
+                w = (p_suffix / beta_vec) * q_prefix                    # β^{T-1-k} · η^{k+1}
+
+                # ---------- A_T (scalar) ----------
+                A_T = w.sum()
+
+                # ---------- B_{T,j}  (shape: T) ----------
+                partial_sum = torch.cumsum(w.flip(0), dim=0).flip(0)    # Σ_{k=j}^{T-1} w_k
+                B_coeffs = -theta_vec * partial_sum / q_prefix          # −θ · B_{T,j}
+
+                # ---------- D_{T,j}  (shape: T) ----------
+                D_coeffs = -theta_vec * q_suffix                        # −θ · D_{T,j}
+
+                # ---------- initial states ----------
+                M_0 = param.data                                        # (*param_shape)
+                S_0 = surprise.get(name, torch.zeros_like(param))       # (*param_shape)
+
+                # broadcast helper: reshape coeffs to (T, 1, 1, …)
+                expand = lambda v: v.view(T, *([1] * M_0.dim()))
+
+                # ---------- final memory  M_T ----------
+                gradient_term = (grad * expand(B_coeffs)).sum(dim=0)    # Σ −θ B u
+                param.data = p_T * M_0 + A_T * S_0 + gradient_term      # M_T
+
+                # ---------- updated surprise  S_T ----------
+                surprise_term = (grad * expand(D_coeffs)).sum(dim=0)    # Σ −θ D u
+                surprise[name] = q_T * S_0 + surprise_term              # S_T              
+
+            return surprise, losses  # return updated surprise and losses (which may contain persistent tokens)
 
 
-# TODO: train template weights before training rest of the model
 class NeuralMemory(nn.Module):
     """
     Neural Memory Module Requirements:
@@ -143,134 +217,19 @@ class NeuralMemory(nn.Module):
         return self.mlps_processor(queries)
     
     def update(self, x):
-        if x.shape[1] > 1:
-            return self.update_seq(x)
-        else:
-            return self.update_single(x)
-        
-    # TODO: consider removing this function and just using update_seq for everything
-    def update_single(self, x):
         self.mlp_reset = False
         z = x.detach()
 
         # Evaluate the corresponding keys and values
         keys = normalize(self.silu(self.K(z)))
-        vals = normalize(self.silu(self.V(z)))
+        values = normalize(self.silu(self.V(z)))
 
-        with torch.enable_grad():  # Enable gradients for this specific block
-            # Propagate the keys through the model
-            """
-            Updates sequence with accelerated scan
-            1. Calculates grad_t
-            2. calculates S_t = eta * S_{t-1} - theta * grad_t
-            3. calculate M_t = (1-alpha_t) * M_{t-1} + S_t
-            """
+        beta_vec = torch.full((keys.shape[1],), self.beta, device=keys.device)
+        eta_vec = torch.full((keys.shape[1],), self.eta, device=keys.device)
+        theta_vec = torch.full((keys.shape[1],), self.theta, device=keys.device)
 
-            keys = self.forward(keys)
-
-            # Calculate the loss || M(keys) - vals ||_2 ^2
-            loss = ((keys - vals) ** 2).mean(axis=0).sum()
-
-            # Compute gradients of aux loss w.r.t. NMM's parameters
-            # Ensure parameters of NeuralMemory (self.K, self.V, self.layers) have requires_grad=True
-            grads = torch.autograd.grad(loss, self.parameters(), allow_unused=True)  # type: ignore
-
-            for (name, param), grad in zip(self.named_parameters(), grads):
-                if grad is None or name[0] in ['K', 'V']:
-                    continue
-                if self.surprise.get(name, None) is None:
-                    self.surprise[name] = torch.zeros_like(grad)
-                self.surprise[name] = self.surprise[name] * self.eta - self.theta * grad
-                param.data = self.alpha * param.data + self.surprise[name]
-
-            return loss
-    
-    def update_seq(self, x):
-        self.mlp_reset = False
-        z = x.detach()
-
-        # Evaluate the corresponding keys and values
-        keys = normalize(self.silu(self.K(z)))
-        vals = normalize(self.silu(self.V(z)))
-
-        with torch.enable_grad():  # Enable gradients for this specific block
-            # Dict[parameter name] -> (seq len, *param shape)
-            grads = per_sample_grads(self.mlps_processor, dict(self.mlps_processor.named_parameters()), keys, vals)  # type: ignore
-            for (name, param), grad_name in zip(self.mlps_processor.named_parameters(), grads):  # type: ignore
-                grad = grads[grad_name]  # getting grad: (T, *param shape)
-                if grad is None:
-                    continue
-
-                # ================================================================
-                # Recurrence definitions (for context)
-                # --------------------------------------------------------
-                #   S_t = η_t · S_{t-1} − θ_t · u_t
-                #   M_t = (1 − α_t) · M_{t-1} + S_t
-                # --------------------------------------------------------
-                # Closed-form coefficients
-                # --------------------------------------------------------
-                #   p_t              = ∏_{i=0}^{t} β_i
-                #   q_t              = ∏_{i=0}^{t} η_i
-                #
-                #   w_k              =  (∏_{i=k+1}^{T-1} β_i) · (∏_{i=0}^{k} η_i)
-                #                     =  β_{k+1} β_{k+2} … β_{T-1} · η_0 η_1 … η_k
-                #
-                #   A_T              =  Σ_{k=0}^{T-1} w_k
-                #
-                #   B_{T,j}          =  (Σ_{k=j}^{T-1} w_k) · q_j⁻¹
-                #   D_{T,j}          =  q_T · q_j⁻¹
-                #
-                #   M_T (=param)     =  p_T·M_0  +  A_T·S_0  −  Σ_j θ·B_{T,j}·u_j
-                #   S_T (surprise)   =  q_T·S_0  −  Σ_j θ·D_{T,j}·u_j
-                # ================================================================
-
-                T = grad.size(0)                                       # length of sequence  (T, *)
-                device = grad.device
-
-                # ---------- constant-valued coefficient vectors ----------
-                beta_vec = torch.full((T,), self.beta, device=device)   # β_0 … β_{T-1}
-                eta_vec = torch.full((T,), self.eta,  device=device)    # η_0 … η_{T-1}
-                theta_vec = torch.full((T,), self.theta, device=device) # θ_0 … θ_{T-1}
-
-                # ---------- prefix / suffix cumulative products ----------
-                p_prefix = beta_vec.cumprod(0)                          # p_t  = β_0⋯β_t
-                p_suffix = beta_vec.flip(0).cumprod(0).flip(0)          # β_t⋯β_{T-1}
-
-                q_prefix = eta_vec.cumprod(0)                           # q_t  = η_0⋯η_t
-                q_suffix = eta_vec.flip(0).cumprod(0).flip(0)           # η_t⋯η_{T-1}
-
-                p_T = p_prefix[-1]                                      # final p_T  (scalar)
-                q_T = q_prefix[-1]                                      # final q_T  (scalar)
-
-                # ---------- w_k  (shape: T) ----------
-                w = (p_suffix / beta_vec) * q_prefix                    # β^{T-1-k} · η^{k+1}
-
-                # ---------- A_T (scalar) ----------
-                A_T = w.sum()
-
-                # ---------- B_{T,j}  (shape: T) ----------
-                partial_sum = torch.cumsum(w.flip(0), dim=0).flip(0)    # Σ_{k=j}^{T-1} w_k
-                B_coeffs = -theta_vec * partial_sum / q_prefix          # −θ · B_{T,j}
-
-                # ---------- D_{T,j}  (shape: T) ----------
-                D_coeffs = -theta_vec * q_suffix                        # −θ · D_{T,j}
-
-                # ---------- initial states ----------
-                M_0 = param.data                                        # (*param_shape)
-                S_0 = self.surprise.get(name, torch.zeros_like(param))  # (*param_shape)
-
-                # broadcast helper: reshape coeffs to (T, 1, 1, …)
-                expand = lambda v: v.view(T, *([1] * M_0.dim()))
-
-                # ---------- final memory  M_T ----------
-                gradient_term = (grad * expand(B_coeffs)).sum(dim=0)    # Σ −θ B u
-                param.data = p_T * M_0 + A_T * S_0 + gradient_term      # M_T
-
-                # ---------- updated surprise  S_T ----------
-                surprise_term = (grad * expand(D_coeffs)).sum(dim=0)    # Σ −θ D u
-                self.surprise[name] = q_T * S_0 + surprise_term         # S_T              
-
-            return 0  # TODO: return loss?
+        self.surprise, losses = self.mlps_processor.update_memory(self.surprise, keys, values, beta_vec, eta_vec, theta_vec)  # type: ignore
+        return losses
         
     def init_mlp_template_weights(self, seed=42):
         reference_mlp = self.build_mlp()
