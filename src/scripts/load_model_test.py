@@ -63,6 +63,10 @@ TRAIN_MODEL = True
 # Layers that should use memory (e.g., only layers 0, 5, 10)
 MEMORY_LAYERS = [0, 1, 2, 3, 4] # Maximum number of memory layers I can have without crashing on 20gb 5/19
 
+if sys.platform == "darwin":  # if macos:
+    USE_SW = False
+    print("Sliding window attention not supported on macOS. Skipping...")
+
 # Rebuilding the same Transformer architecture:
 kwargs = {}
 memory_config = MemoryConfig()
