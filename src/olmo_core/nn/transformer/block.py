@@ -287,6 +287,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             _loss = self.memory.update(chunk_x)
             gate = self.memory.retrieve(chunk_x)
             gates.append(gate)
+            self.memory.train_initial_mlp()
         gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
         
         attn = self.attention(x, **kwargs)

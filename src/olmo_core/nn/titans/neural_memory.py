@@ -20,11 +20,6 @@ def loss_one(model, param_dict, x, target):
 grad_one = grad(loss_one, argnums=1)  # takes the gradient of the loss w.r.t. the model parameters
 per_sample_grads = vmap(grad_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients
 
-def next_power_of_2(x: int) -> int:
-    if x < 1:
-        raise ValueError("Input must be a positive integer.")
-    return 1 << (x - 1).bit_length()  # Find the next power of 2 using bit manipulation
-
 
 class ParallelMLPs(nn.Module):
     """
@@ -33,8 +28,7 @@ class ParallelMLPs(nn.Module):
     def __init__(self, mlp_list: List[nn.Module], template_weights: nn.ParameterDict):
         super().__init__()
         self.mlps = nn.ModuleList(mlp_list)
-        self._template_weights = template_weights
-        self.reset_weights_from_template()
+        self.reset_weights_from_template(template_weights)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[0] != len(self.mlps):
@@ -44,7 +38,7 @@ class ParallelMLPs(nn.Module):
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
         return torch.stack(outputs, dim=0)
     
-    def reset_weights_from_template(self):
+    def reset_weights_from_template(self, template_weights: nn.ParameterDict):
         """
         Copies the learned template weights to all MLP instances.
         This is used for resetting the MLPs to their learned base state.
@@ -54,8 +48,8 @@ class ParallelMLPs(nn.Module):
             for mlp_instance in self.mlps:
                 for name, param_instance in mlp_instance.named_parameters():
                     clean_name = name.replace('.', '_')
-                    if clean_name in self._template_weights:
-                        param_instance.data.copy_(self._template_weights[clean_name].data)
+                    if clean_name in template_weights:
+                        param_instance.data.copy_(template_weights[clean_name].data)
                     else:
                         # This case implies a mismatch if it occurs after successful initialization.
                         raise KeyError(
@@ -72,7 +66,7 @@ class NeuralMemory(nn.Module):
     2. but has shared, learned K and V matrices ad 
     """
 
-    def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32, alpha = 0.999, eta = 0.60, theta = 0.05, nu = 0.95):
+    def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32, alpha = 0.999, eta = 0.60, theta = 0.05, nu = 0.01):
         super().__init__()
 
         # Define the layers of the network
@@ -133,7 +127,7 @@ class NeuralMemory(nn.Module):
 
     def reset_mlps(self):
         if self.mlps_processor is not None:
-            self.mlps_processor.reset_weights_from_template()  # type: ignore
+            self.mlps_processor.reset_weights_from_template(self.mlp_template_weights)  # type: ignore
             self.mlp_reset = True
 
     def retrieve(self, x, new_params=None):
@@ -154,6 +148,7 @@ class NeuralMemory(nn.Module):
         else:
             return self.update_single(x)
         
+    # TODO: consider removing this function and just using update_seq for everything
     def update_single(self, x):
         self.mlp_reset = False
         z = x.detach()
@@ -203,7 +198,7 @@ class NeuralMemory(nn.Module):
             grads = per_sample_grads(self.mlps_processor, dict(self.mlps_processor.named_parameters()), keys, vals)  # type: ignore
             for (name, param), grad_name in zip(self.mlps_processor.named_parameters(), grads):  # type: ignore
                 grad = grads[grad_name]  # getting grad: (T, *param shape)
-                if grad is None or name[0] in ['K', 'V'] or name.startswith("_template_weights.") or name.startswith("_orig_mod._template_weights."):
+                if grad is None:
                     continue
 
                 # ================================================================
@@ -283,9 +278,6 @@ class NeuralMemory(nn.Module):
         with torch.no_grad():
             torch.manual_seed(seed)
             for name, param_to_copy in reference_mlp.named_parameters():
-                if "_template_weights." in name:
-                    # Skip parameters that are already in the template weights
-                    continue
                 # Sanitize name for ParameterDict key, e.g., 'layers.0.weight' -> 'layers_0_weight'
                 clean_name = name.replace('.', '_')
                 # Create new parameters for the template
@@ -303,3 +295,15 @@ class NeuralMemory(nn.Module):
                 template_weights[clean_name] = new_param
         del reference_mlp
         return template_weights
+    
+    def train_initial_mlp(self):
+        mlp_updates = {}
+        for mlp in self.mlps_processor.mlps:  # type: ignore
+            for name, param in mlp.named_parameters():
+                clean_name = name.replace('.', '_')
+                mlp_updates[clean_name] = mlp_updates.get(clean_name, []) + [param.data.clone()]
+        for name, params in mlp_updates.items():
+            assert name in self.mlp_template_weights, f"Parameter {name} not found in template weights, but in MLPs."
+            avg_param = torch.mean(torch.stack(params), dim=0) if len(params) > 1 else params[0]
+            old_weight = self.mlp_template_weights[name].data
+            self.mlp_template_weights[name].data = (1 - self.nu) * old_weight + self.nu * avg_param

@@ -65,7 +65,7 @@ MEMORY_LAYERS = [0, 1, 2, 3, 4] # Maximum number of memory layers I can have wit
 
 if sys.platform == "darwin":  # if macos:
     USE_SW = False
-    print("Sliding window attention not supported on macOS. Skipping...")
+    print("Sliding window attention not supported on macOS. Disabling...")
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}
