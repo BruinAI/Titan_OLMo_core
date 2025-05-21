@@ -1,7 +1,7 @@
 import torch
-from torch import nn
+from torch import ne, nn
 from torch.nn.functional import normalize
-from torch.func import functional_call, grad, grad_and_value, vmap
+from torch.func import functional_call, grad_and_value, vmap
 from typing import List
 
 
@@ -19,7 +19,6 @@ def loss_one(model, param_dict, x, target):
 
 grad_and_loss_one = grad_and_value(loss_one, argnums=1)  # takes the gradient and value of the loss w.r.t. the model parameters
 per_sample_grads_and_losses = vmap(grad_and_loss_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients and value
-compiled_per_sample_grads_and_losses = torch.compile(per_sample_grads_and_losses, fullgraph=True)  # compile the function for better performance
 
 class ParallelMLPs(nn.Module):
     """
@@ -57,15 +56,16 @@ class ParallelMLPs(nn.Module):
                             f"during reset. Ensure MLP structures remain consistent."
                         )
     
-    # @torch.compile(fullgraph=True)
+    @torch.compile(fullgraph=True)
     def update_memory(self, surprise, keys, values, beta_vec, eta_vec, theta_vec):
         with torch.enable_grad():  # Enable gradients for this specific block
-            # Dict[parameter name] -> (seq len, *param shape)
-            # grads, losses = per_sample_grads_and_losses(self, dict(self.named_parameters()), keys, values)
-            grads, losses = compiled_per_sample_grads_and_losses(self, dict(self.named_parameters()), keys, values)
+            new_data = {}
+            grads, losses = per_sample_grads_and_losses(self, dict(self.named_parameters()), keys, values)
             for (name, param), grad_name in zip(self.named_parameters(), grads):
                 grad = grads[grad_name]  # getting grad: (T, *param shape)
                 if grad is None:
+                    if self.training:
+                        new_data[name] = param.data.clone()
                     continue
                 # ================================================================
                 # Recurrence definitions (for context)
@@ -124,13 +124,17 @@ class ParallelMLPs(nn.Module):
 
                 # ---------- final memory  M_T ----------
                 gradient_term = (grad * expand(B_coeffs)).sum(dim=0)    # Σ −θ B u
-                param.data = p_T * M_0 + A_T * S_0 + gradient_term      # M_T
+                if self.training:
+                    new_data[name] = p_T * M_0 + A_T * S_0 + gradient_term
+                else:
+                    param.data = p_T * M_0 + A_T * S_0 + gradient_term      # M_T
 
                 # ---------- updated surprise  S_T ----------
                 surprise_term = (grad * expand(D_coeffs)).sum(dim=0)    # Σ −θ D u
                 surprise[name] = q_T * S_0 + surprise_term              # S_T              
 
-            return surprise, losses  # return updated surprise and losses (which may contain persistent tokens)
+            # returned losses may contain losses for persistent tokens
+            return surprise, losses, new_data
 
 
 class NeuralMemory(nn.Module):
@@ -197,7 +201,7 @@ class NeuralMemory(nn.Module):
             mlp = self.build_mlp().to(device)  # build the mlp
             mlps.append(mlp)  # adding the mlp to the list
         parallel_mlps = ParallelMLPs(mlps, self.mlp_template_weights).to(device)
-        self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
+        self.mlps_processor = torch.compile(parallel_mlps, fullgraph=True)  # type: ignore
 
     def reset_mlps(self):
         if self.mlps_processor is not None:
@@ -207,8 +211,10 @@ class NeuralMemory(nn.Module):
     def retrieve(self, x, new_params=None):
         if new_params is None:
             return self.forward(x)  # same thing as functional_call just clearer code
-        else:
-            return functional_call(self, dict(self.named_parameters()), x)
+        elif self.mlps_processor is None:
+            raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
+        queries = normalize(self.silu(self.Q(x)))
+        return functional_call(self.mlps_processor, new_params, queries)
 
     def forward(self, x):
         if self.mlps_processor is None:
@@ -228,9 +234,21 @@ class NeuralMemory(nn.Module):
         eta_vec = torch.full((keys.shape[1],), self.eta, device=keys.device)
         theta_vec = torch.full((keys.shape[1],), self.theta, device=keys.device)
 
-        self.surprise, losses = self.mlps_processor.update_memory(self.surprise, keys, values, beta_vec, eta_vec, theta_vec)  # type: ignore
+        self.surprise, losses, new_data = self.mlps_processor.update_memory(  # type: ignore
+            self.surprise, keys, values, beta_vec, eta_vec, theta_vec
+        )
+        if not self.training:
+            return losses
+
+        remove_str = "_orig_mod."
+        for name, param in self.mlps_processor.named_parameters():  # type: ignore
+            name = name[len(remove_str):] if name.startswith(remove_str) else name
+            if name in new_data:
+                param.data = new_data[name]
+            else:
+                raise KeyError(f"Parameter {name} not found in new_data. Ensure all parameters are named correctly.")
         return losses
-        
+
     def init_mlp_template_weights(self, seed=42):
         reference_mlp = self.build_mlp()
         template_weights = nn.ParameterDict()
