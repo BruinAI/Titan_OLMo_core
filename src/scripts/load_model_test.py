@@ -55,9 +55,9 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 
 USE_MAG = True
 USE_SW = True
-MAX_TOKENS = 128
+MAX_TOKENS = 256
 PROFILE_MEM = False
-NUM_PERSISTENT = 6 # None for no persistent tokens
+NUM_PERSISTENT = 4 # None for no persistent tokens
 USE_PERSISTENT = (NUM_PERSISTENT is not None)
 TRAIN_MODEL = False
 
@@ -171,6 +171,7 @@ def generate(model, text, max_tokens=MAX_TOKENS) -> Generator[torch.types.Number
             yield next_token.item()
             # ending generation if EOS token is reached
             if next_token.item() == tokenizer.eos_token_id:
+                print("[Got EOS token]")
                 break
 
 if not TRAIN_MODEL:
@@ -180,7 +181,8 @@ if not TRAIN_MODEL:
         for token in generate(model, sample_text, max_tokens=MAX_TOKENS):
             streamed_token = tokenizer.decode([token], skip_special_tokens=True)
             print(streamed_token, end="", flush=True)
-            if token == tokenizer.eos_token:
+            if token == tokenizer.eos_token_id:
+                print("[Got EOS token]")
                 break
         print("[Max Tokens Reached]")
     if PROFILE_MEM:

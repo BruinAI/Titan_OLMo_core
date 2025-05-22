@@ -62,7 +62,6 @@ class SlidingWindowAttentionConfig(Config):
     force_last: bool = True
     use_paddle_flash: bool = False
     num_global_tokens: int = 0
-    use_paddle_flash: bool = False
 
     def should_use_swa(self, layer_idx: int, n_layers: int) -> bool:
         if self.force_first:
