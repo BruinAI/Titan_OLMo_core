@@ -108,13 +108,13 @@ class MemoryTransformer(nn.Module):
         self.dtype = dtype
         self.num_persistent = num_persistent
         
-        self.persistent_token_embeddings = nn.Parameter(
-            torch.empty(self.num_persistent, self.d_model, dtype=self.dtype)
-        )
+        #self.persistent_token_embeddings = nn.Parameter(
+        #    torch.empty(self.num_persistent, self.d_model, dtype=self.dtype)
+        #)
         # Initialize the parameter weights.
         # You might want to use a specific method from self.init_method or a custom initialization.
         # For minimality, we use a similar approach to standard embedding initialization.
-        nn.init.normal_(self.persistent_token_embeddings, mean=0.0, std=init_std)
+        #nn.init.normal_(self.persistent_token_embeddings, mean=0.0, std=init_std)
 
         self.embeddings = nn.Embedding(vocab_size, d_model, dtype=dtype, device=init_device)
         self.blocks = nn.ModuleDict()
@@ -451,13 +451,13 @@ class MemoryTransformer(nn.Module):
         )
         
         sequence_embeds = self.embeddings(input_ids) if self.embeddings is not None else input_ids
-        batch_size = sequence_embeds.size(0)
-        expanded_persistent_embeds = self.persistent_token_embeddings.unsqueeze(0).expand(
-            batch_size, -1, -1
-        )
+        #batch_size = sequence_embeds.size(0)
+        #expanded_persistent_embeds = self.persistent_token_embeddings.unsqueeze(0).expand(
+        #    batch_size, -1, -1
+        #)
         # Get embeddings but pass-through for non-existent layers to allow easy
         # pipeline parallel configuration.
-        h = torch.cat([expanded_persistent_embeds, sequence_embeds], dim=1)
+        h = sequence_embeds
 
         # Run each block.
         for block in self.blocks.values():
@@ -466,27 +466,17 @@ class MemoryTransformer(nn.Module):
                 mark_dynamic(h, (0, 1), strict=False)
             h = block(h, **block_kwargs)
             
-            
-        final_labels: Optional[torch.Tensor] = None
-        if labels is not None:
-            prefix_labels = torch.full(
-                (batch_size, self.num_persistent),
-                ignore_index,  # Use the same ignore_index for persistent tokens
-                device=labels.device,
-                dtype=labels.dtype,
-            )
-            final_labels = torch.cat([prefix_labels, labels], dim=1)
 
         # Get final logits but again pass-through in case of pipeline parallelism.
         if self.lm_head is not None:
             if self.compile_enabled:
                 mark_dynamic(h, (0, 1), strict=False)
                 if labels is not None:
-                    mark_dynamic(final_labels, (0, 1), strict=False) # type:ignore
+                    mark_dynamic(labels, (0, 1), strict=False) # type:ignore
             # NOTE: When TP is active we can't pass 'labels=None' or the hook from 'PrepareModuleInput'
             # will throw an exception.
             if labels is not None:
-                lm_head_kwargs["labels"] = final_labels
+                lm_head_kwargs["labels"] = labels
             return self.lm_head(h, **lm_head_kwargs)
         else:
             return h

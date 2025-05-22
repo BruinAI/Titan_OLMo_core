@@ -57,11 +57,12 @@ USE_MAG = True
 USE_SW = True
 MAX_TOKENS = 128
 PROFILE_MEM = False
-NUM_PERSISTENT = 6
-TRAIN_MODEL = True
+NUM_PERSISTENT = 6 # None for no persistent tokens
+USE_PERSISTENT = (NUM_PERSISTENT is not None)
+TRAIN_MODEL = False
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
-MEMORY_LAYERS = [0, 1, 2, 3, 4] # Maximum number of memory layers I can have without crashing on 20gb 5/19
+MEMORY_LAYERS = [0, 1, 2, 3] # Maximum number of memory layers I can have without crashing on 20gb 5/19
 
 if sys.platform == "darwin":  # if macos:
     USE_SW = False
@@ -80,22 +81,29 @@ if USE_MAG:
         kwargs["memory_config"] = memory_config
     else:
         # Apply only to specific layers
-        kwargs["block_name"] = TransformerBlockType.reordered_norm
+        kwargs["block_name"] = TransformerBlockType.mag_reordered_norm
         block_overrides = {}
         
         # Create block configs for specific memory layers
         for layer_idx in MEMORY_LAYERS:
-            block_overrides[layer_idx] = TransformerBlockConfig(
-                name=TransformerBlockType.mag_reordered_norm,
-                attention=None,  # Will be filled by the config system
-                layer_norm=None,  # Will be filled by the config system
-                feed_forward=None,  # Will be filled by the config system
-                memory_config=memory_config,
-            )
+            block_overrides[layer_idx] = [
+                TransformerBlockConfig(
+                    name=TransformerBlockType.mag_reordered_norm,
+                    attention=None,  # Will be filled by the config system
+                    layer_norm=None,  # Will be filled by the config system
+                    feed_forward=None,  # Will be filled by the config system
+                    memory_config=memory_config
+                ),
+                USE_PERSISTENT,  # Enable PaddlePaddle
+                NUM_PERSISTENT  # Use persistent tokens as global tokens
+            ]
         kwargs["block_overrides"] = block_overrides
 
 if USE_SW:
-    kwargs["sliding_window"] = SlidingWindowAttentionConfig(pattern=[True], window_size=memory_config.window_size)
+    kwargs["sliding_window"] = SlidingWindowAttentionConfig(
+            pattern=[True], 
+            window_size=memory_config.window_size,
+    )
     kwargs["use_flash"] = True
 
 tok_cfg = TokenizerConfig.dolma2()

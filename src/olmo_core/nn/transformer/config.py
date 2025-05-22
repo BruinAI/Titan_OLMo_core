@@ -178,6 +178,9 @@ class TransformerBlockConfig(Config):
     Dropout probability.
     """
     memory_config: Optional[MemoryConfig] = None
+    """
+    Memory settings. No memory if None
+    """
 
     def build(
         self,
@@ -976,19 +979,37 @@ class TransformerConfig(Config):
             feed_forward_moe=feed_forward_moe,
             layer_norm=layer_norm,
             **transformer_block_kwargs,
-        )
-        
+        )   
+        block_override_configs = {}
         if block_overrides:
             # Make sure all blocks have required fields filled in using values from the default block
-            for layer_idx, block_config in block_overrides.items():
+            for layer_idx, block_config_list in block_overrides.items():
+                block_config = block_config_list[0]
                 if block_config.attention is None:
                     block_config.attention = block.attention
+                    use_paddle_flash = block_config_list[1]
+                    num_global_tokens = block_config_list[2]
+                    if use_paddle_flash and num_global_tokens:
+                        block_config.attention = AttentionConfig(
+                                        name=att_type,
+                                        n_heads=n_heads,
+                                        n_kv_heads=n_kv_heads,
+                                        bias=False,
+                                        rope=RoPEConfig(name=rope_type, theta=rope_theta, scaling=rope_scaling),
+                                        qk_norm=layer_norm if qk_norm else None,
+                                        use_flash=use_flash,
+                                        dtype=dtype,
+                                        use_paddle_flash=use_paddle_flash,
+                                        num_global_tokens=num_global_tokens,
+                                        **kwargs,
+                                    )
                 if block_config.feed_forward is None:
                     block_config.feed_forward = block.feed_forward
                 if block_config.layer_norm is None:
                     block_config.layer_norm = block.layer_norm
                 if block_config.feed_forward_moe is None:
                     block_config.feed_forward_moe = block.feed_forward_moe
+                block_override_configs[layer_idx] = block_config
 
         return cls(
             d_model=d_model,
@@ -997,7 +1018,7 @@ class TransformerConfig(Config):
             block=block,
             lm_head=LMHeadConfig(layer_norm=layer_norm, bias=False, dtype=dtype),
             dtype=dtype,
-            block_overrides=block_overrides,
+            block_overrides=block_override_configs
         )
 
     @classmethod

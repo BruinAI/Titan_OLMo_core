@@ -146,7 +146,10 @@ class NeuralMemory(nn.Module):
     2. but has shared, learned K and V matrices ad 
     """
 
-    def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32, alpha = 0.999, eta = 0.60, theta = 0.05, nu = 0.01):
+    def __init__(self, emb_dim = 16, n_layers = 2, 
+                 hidden_dim = 32, alpha = 0.999, 
+                 eta = 0.60, theta = 0.05, nu = 0.01,
+                 use_paddle_flash = False, num_global_tokens = 0):
         super().__init__()
 
         # Define the layers of the network
@@ -162,6 +165,14 @@ class NeuralMemory(nn.Module):
         self.K = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to keys
         self.Q = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to queries
         self.V = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to values
+        
+        self.use_paddle_flash = use_paddle_flash
+        self.num_global_tokens = num_global_tokens
+        
+        self.persistent_tokens = nn.Parameter(
+        torch.empty(self.num_global_tokens, self.emb_dim)
+        )
+        torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.02)
 
         torch.nn.init.xavier_uniform_(self.K.weight)
         torch.nn.init.xavier_uniform_(self.V.weight)
@@ -229,7 +240,8 @@ class NeuralMemory(nn.Module):
     def forward(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
-        queries = normalize(self.silu(self.Q(x)))
+        
+        queries = normalize(self.silu(self.Q(x)))            
         return functional_call(self.mlps_processor, self.mlp_states[-1], queries)
 
     @torch.compile(fullgraph=True)
@@ -238,6 +250,20 @@ class NeuralMemory(nn.Module):
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
         
         self.mlp_reset = False
+           
+        # NOT SURE IF THIS SHOULD GO BEFORE OR AFTER THE DETATCH
+        
+        if self.use_paddle_flash:
+            # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
+            repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)
+            
+            # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
+            repeated_persistent_tokens = repeated_persistent_tokens.expand(x.shape[0], -1, -1)
+            
+            # Concatenate with input along sequence dimension
+            x = torch.cat([repeated_persistent_tokens, x], dim=1)
+            
+            
         z = x.detach()
 
         # Evaluate the corresponding keys and values
@@ -252,7 +278,7 @@ class NeuralMemory(nn.Module):
             self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec
         )
         if self.training:
-            self.mlp_states.append(next_mlp_params)
+            self.mlp_states[-1] = next_mlp_params
         return losses
 
     def init_mlp_template_weights(self, seed=42):
