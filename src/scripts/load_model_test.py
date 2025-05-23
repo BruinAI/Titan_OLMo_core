@@ -56,8 +56,8 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 USE_MAG = True
 USE_SW = True
 MAX_TOKENS = 128
+TRAIN_MODEL = True
 PROFILE_MEM = False
-TRAIN_MODEL = False
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
 MEMORY_LAYERS = [3, 7, 11, 15]  # every 4th layer
@@ -207,7 +207,7 @@ else:
         target = torch.nn.functional.one_hot(input_ids[:, 1:], num_classes=model_cfg.vocab_size).float()
         x = input_ids[:, :-1].clone()
         for i in tqdm(range(3)):
-            outputs = model(x, attention_mask=attention_mask)[:, NUM_PERSISTENT:, :]
+            outputs = model(x, attention_mask=attention_mask)  # [:, NUM_PERSISTENT:, :]
             loss = ce_loss(outputs, target)
             loss.backward()
             optimizer.step()
