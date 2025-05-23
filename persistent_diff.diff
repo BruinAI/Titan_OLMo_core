@@ -14,7 +14,7 @@ index 32dda15..c89b2c5 100644
      window_size: int = 4096
      force_first: bool = True
      force_last: bool = True
-+    use_paddle_flash: bool = False
++    use_global_sw: bool = False
 +    num_global_tokens: int = 0
  
      def should_use_swa(self, layer_idx: int, n_layers: int) -> bool:
@@ -24,7 +24,7 @@ index 32dda15..c89b2c5 100644
      dtype: DType = DType.float32
      sliding_window: Optional[SlidingWindowAttentionConfig] = None
 +    num_global_tokens: int = 0
-+    use_paddle_flash: bool = False
++    use_global_sw: bool = False
  
      def num_params(self, d_model: int) -> int:
          """
@@ -32,7 +32,7 @@ index 32dda15..c89b2c5 100644
          qk_norm: Optional[LayerNormConfig] = None,
          dropout: float = 0.0,
          use_flash: bool = False,
-+        use_paddle_flash: bool = False,  # Add this
++        use_global_sw: bool = False,  # Add this
 +        num_global_tokens: int = 0,      # Add this
          window_size: Optional[int] = None,
          dtype: torch.dtype = torch.float32,
@@ -43,7 +43,7 @@ index 32dda15..c89b2c5 100644
  
 -        self.use_flash = use_flash
 +        self.use_flash = use_flash            
-+        self.use_paddle_flash = use_paddle_flash  # Store this
++        self.use_global_sw = use_global_sw  # Store this
 +        self.num_global_tokens = num_global_tokens  # Store this
  
          # Translate window size so that we only look left, not right.
@@ -57,7 +57,7 @@ index 32dda15..c89b2c5 100644
          att: torch.Tensor
 +    
 +        # Check if we should use PaddlePaddle flash attention
-+        use_paddle = kwargs.get("use_paddle_flash", False)
++        use_paddle = kwargs.get("use_global_sw", False)
 +        if use_paddle:
 +            from .flash_attn_api import dispatch_paddle_flash_attn
 +            return dispatch_paddle_flash_attn(
@@ -84,7 +84,7 @@ index 32dda15..c89b2c5 100644
              max_doc_len_q=max_doc_len_q,
              max_doc_len_k=max_doc_len_k,
              local_k_slice=local_k_slice,
-+            use_paddle_flash=getattr(self, 'use_paddle_flash', False),  # Pass from instance variable
++            use_global_sw=getattr(self, 'use_global_sw', False),  # Pass from instance variable
 +            num_global_tokens=getattr(self, 'num_global_tokens', 0)     # Pass from instance variable
          )
  
@@ -183,7 +183,7 @@ index 1fa4549..282619a 100644
 +    def __init__(self, emb_dim = 16, n_layers = 2, 
 +                 hidden_dim = 32, alpha = 0.999, 
 +                 eta = 0.60, theta = 0.05, nu = 0.01,
-+                 use_paddle_flash = False, num_global_tokens = 0):
++                 use_global_sw = False, num_global_tokens = 0):
          super().__init__()
  
          # Define the layers of the network
@@ -192,7 +192,7 @@ index 1fa4549..282619a 100644
          self.Q = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to queries
          self.V = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to values
 +        
-+        self.use_paddle_flash = use_paddle_flash
++        self.use_global_sw = use_global_sw
 +        self.num_global_tokens = num_global_tokens
 +        
 +        self.persistent_tokens = nn.Parameter(
@@ -222,7 +222,7 @@ index 1fa4549..282619a 100644
 +           
 +        # NOT SURE IF THIS SHOULD GO BEFORE OR AFTER THE DETATCH
 +        
-+        if self.use_paddle_flash:
++        if self.use_global_sw:
 +            # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
 +            repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)
 +            
@@ -252,13 +252,13 @@ index 9f67f57..2769816 100644
          assert d_model is not None and isinstance(d_model, int) and d_model > 0, "d_model must be a kwarg of type int and > 0"
          self.chunk_size = self.memory_config.chunk_size
 +        
-+        self.use_paddle_flash = self.attention.use_paddle_flash
++        self.use_global_sw = self.attention.use_global_sw
 +        self.num_global_tokens = self.attention.num_global_tokens
          self.memory = NeuralMemory(
              emb_dim=d_model,
              n_layers=self.memory_config.n_layers,
              hidden_dim=self.memory_config.hidden_dim_multiple * d_model,
-+            use_paddle_flash = self.use_paddle_flash,
++            use_global_sw = self.use_global_sw,
 +            num_global_tokens = self.num_global_tokens,
          )
          # self.persistent_memory = nn.Parameter(
@@ -328,9 +328,9 @@ index 9559e08..0c2714c 100644
 +                block_config = block_config_list[0]
                  if block_config.attention is None:
                      block_config.attention = block.attention
-+                    use_paddle_flash = block_config_list[1]
++                    use_global_sw = block_config_list[1]
 +                    num_global_tokens = block_config_list[2]
-+                    if use_paddle_flash and num_global_tokens:
++                    if use_global_sw and num_global_tokens:
 +                        block_config.attention = AttentionConfig(
 +                                        name=att_type,
 +                                        n_heads=n_heads,
@@ -340,7 +340,7 @@ index 9559e08..0c2714c 100644
 +                                        qk_norm=layer_norm if qk_norm else None,
 +                                        use_flash=use_flash,
 +                                        dtype=dtype,
-+                                        use_paddle_flash=use_paddle_flash,
++                                        use_global_sw=use_global_sw,
 +                                        num_global_tokens=num_global_tokens,
 +                                        **kwargs,
 +                                    )

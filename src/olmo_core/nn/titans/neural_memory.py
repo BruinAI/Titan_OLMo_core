@@ -149,7 +149,7 @@ class NeuralMemory(nn.Module):
     def __init__(self, emb_dim = 16, n_layers = 2, 
                  hidden_dim = 32, alpha = 0.999, 
                  eta = 0.60, theta = 0.05, nu = 0.01,
-                 use_paddle_flash = False, num_global_tokens = 0):
+                 use_global_sw = False, num_global_tokens = 0):
         super().__init__()
 
         # Define the layers of the network
@@ -166,14 +166,14 @@ class NeuralMemory(nn.Module):
         self.Q = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to queries
         self.V = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to values
         
-        self.use_paddle_flash = use_paddle_flash
+        self.use_global_sw = use_global_sw
         self.num_global_tokens = num_global_tokens
         
-        if self.use_paddle_flash and self.num_global_tokens > 0:
+        if self.use_global_sw and self.num_global_tokens > 0:
             self.persistent_tokens = nn.Parameter(
             torch.empty(self.num_global_tokens, self.emb_dim)
             )
-            torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.02)
+            torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.2)
 
         torch.nn.init.xavier_uniform_(self.K.weight)
         torch.nn.init.xavier_uniform_(self.V.weight)
@@ -256,7 +256,7 @@ class NeuralMemory(nn.Module):
            
         # NOT SURE IF THIS SHOULD GO BEFORE OR AFTER THE DETATCH
         
-        if self.use_paddle_flash and self.num_global_tokens > 0:
+        if self.use_global_sw and self.num_global_tokens > 0:
             # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
             repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)
             

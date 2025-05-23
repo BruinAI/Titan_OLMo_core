@@ -57,8 +57,6 @@ USE_MAG = True
 USE_SW = True
 MAX_TOKENS = 128
 PROFILE_MEM = False
-NUM_PERSISTENT = 3 # None for no persistent tokens
-USE_PERSISTENT = (NUM_PERSISTENT is not None)
 TRAIN_MODEL = False
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
@@ -86,17 +84,13 @@ if USE_MAG:
         
         # Create block configs for specific memory layers
         for layer_idx in MEMORY_LAYERS:
-            block_overrides[layer_idx] = [
-                TransformerBlockConfig(
+            block_overrides[layer_idx] = TransformerBlockConfig(
                     name=TransformerBlockType.mag_reordered_norm,
                     attention=None,  # Will be filled by the config system
                     layer_norm=None,  # Will be filled by the config system
                     feed_forward=None,  # Will be filled by the config system
                     memory_config=memory_config
-                ),
-                USE_PERSISTENT,  # Enable PaddlePaddle
-                NUM_PERSISTENT  # Use persistent tokens as global tokens
-            ]
+                )
         kwargs["block_overrides"] = block_overrides
 
 if USE_SW:
@@ -110,7 +104,6 @@ tok_cfg = TokenizerConfig.dolma2()
 model_cfg = TransformerConfig.olmo2_1B(vocab_size=tok_cfg.padded_vocab_size(), **kwargs)
 
 model_cfg.name = transformer_config_name
-model_cfg.num_persistent_tokens = NUM_PERSISTENT
 
 model: torch.nn.Module = model_cfg.build()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

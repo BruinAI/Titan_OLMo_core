@@ -219,13 +219,13 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         assert d_model is not None and isinstance(d_model, int) and d_model > 0, "d_model must be a kwarg of type int and > 0"
         self.chunk_size = self.memory_config.chunk_size
         
-        self.use_paddle_flash = self.attention.use_paddle_flash
+        self.use_global_sw = self.attention.use_global_sw
         self.num_global_tokens = self.attention.num_global_tokens
         self.memory = NeuralMemory(
             emb_dim=d_model,
             n_layers=self.memory_config.n_layers,
             hidden_dim=self.memory_config.hidden_dim_multiple * d_model,
-            use_paddle_flash = self.use_paddle_flash,
+            use_global_sw = self.use_global_sw,
             num_global_tokens = self.num_global_tokens,
         )
         # self.persistent_memory = nn.Parameter(
@@ -269,7 +269,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             last_gate = self.memory.retrieve(last_x)
             self.gate_cache = torch.cat([self.gate_cache, last_gate], dim=1)
                     # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
-        if self.use_paddle_flash:
+        if self.use_global_sw:
             repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
             
             # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
@@ -306,7 +306,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             self.memory.train_initial_mlp()
         gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
         
-        if self.use_paddle_flash:
+        if self.use_global_sw:
             repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
             
             # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]

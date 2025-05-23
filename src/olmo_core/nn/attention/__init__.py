@@ -60,7 +60,7 @@ class SlidingWindowAttentionConfig(Config):
     window_size: int = 4096
     force_first: bool = True
     force_last: bool = True
-    use_paddle_flash: bool = False
+    use_global_sw: bool = False
     num_global_tokens: int = 0
 
     def should_use_swa(self, layer_idx: int, n_layers: int) -> bool:
@@ -117,7 +117,7 @@ class AttentionConfig(Config):
     dtype: DType = DType.float32
     sliding_window: Optional[SlidingWindowAttentionConfig] = None
     num_global_tokens: int = 0
-    use_paddle_flash: bool = False
+    use_global_sw: bool = False
 
     def num_params(self, d_model: int) -> int:
         """
@@ -275,7 +275,7 @@ class Attention(AttentionBase):
         qk_norm: Optional[LayerNormConfig] = None,
         dropout: float = 0.0,
         use_flash: bool = False,
-        use_paddle_flash: bool = False,  # Add this
+        use_global_sw: bool = False,  # Add this
         num_global_tokens: int = 0,      # Add this
         window_size: Optional[int] = None,
         dtype: torch.dtype = torch.float32,
@@ -318,7 +318,7 @@ class Attention(AttentionBase):
             self.rope = rope_class
 
         self.use_flash = use_flash            
-        self.use_paddle_flash = use_paddle_flash  # Store this
+        self.use_global_sw = use_global_sw  # Store this
         self.num_global_tokens = num_global_tokens  # Store this
 
         # Translate window size so that we only look left, not right.
@@ -359,7 +359,7 @@ class Attention(AttentionBase):
         att: torch.Tensor
     
         # Check if we should use PaddlePaddle flash attention
-        use_paddle = kwargs.get("use_paddle_flash", False)
+        use_paddle = kwargs.get("use_global_sw", False)
         if use_paddle:
             from .flash_attn_api import dispatch_paddle_flash_attn
             att = dispatch_paddle_flash_attn(
@@ -527,7 +527,7 @@ class Attention(AttentionBase):
             max_doc_len_q=max_doc_len_q,
             max_doc_len_k=max_doc_len_k,
             local_k_slice=local_k_slice,
-            use_paddle_flash=getattr(self, 'use_paddle_flash', False),  # Pass from instance variable
+            use_global_sw=getattr(self, 'use_global_sw', False),  # Pass from instance variable
             num_global_tokens=getattr(self, 'num_global_tokens', 0)     # Pass from instance variable
         )
 

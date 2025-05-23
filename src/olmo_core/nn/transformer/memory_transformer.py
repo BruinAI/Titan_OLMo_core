@@ -95,7 +95,6 @@ class MemoryTransformer(nn.Module):
         init_seed: int = 0,
         init_std: float = 0.02,
         block_overrides: Optional[Dict[int, TransformerBlockConfig]] = None,
-        num_persistent: Optional[int] = 4,
     ):
         super().__init__()
 
@@ -106,15 +105,6 @@ class MemoryTransformer(nn.Module):
         self.n_layers = n_layers
         self.n_attn_heads = block.attention.n_heads
         self.dtype = dtype
-        self.num_persistent = num_persistent
-        
-        #self.persistent_token_embeddings = nn.Parameter(
-        #    torch.empty(self.num_persistent, self.d_model, dtype=self.dtype)
-        #)
-        # Initialize the parameter weights.
-        # You might want to use a specific method from self.init_method or a custom initialization.
-        # For minimality, we use a similar approach to standard embedding initialization.
-        #nn.init.normal_(self.persistent_token_embeddings, mean=0.0, std=init_std)
 
         self.embeddings = nn.Embedding(vocab_size, d_model, dtype=dtype, device=init_device)
         self.blocks = nn.ModuleDict()
@@ -451,12 +441,7 @@ class MemoryTransformer(nn.Module):
         )
         
         sequence_embeds = self.embeddings(input_ids) if self.embeddings is not None else input_ids
-        #batch_size = sequence_embeds.size(0)
-        #expanded_persistent_embeds = self.persistent_token_embeddings.unsqueeze(0).expand(
-        #    batch_size, -1, -1
-        #)
-        # Get embeddings but pass-through for non-existent layers to allow easy
-        # pipeline parallel configuration.
+        
         h = sequence_embeds
 
         # Run each block.
