@@ -269,14 +269,18 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             last_gate = self.memory.retrieve(last_x)
             self.gate_cache = torch.cat([self.gate_cache, last_gate], dim=1)
                     # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
-        repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
-        
-        # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
-        repeated_persistent_tokens = repeated_persistent_tokens.expand(x.shape[0], -1, -1)
-        
-        x_with_persistent = torch.cat([repeated_persistent_tokens, x], dim=1) # Add persistent tokens to the sliding window attention  
-                            
-        attn = self.attention(x_with_persistent, **kwargs)[:, self.num_global_tokens:, :] # Remove persistent tokens from attention output
+        if self.use_paddle_flash:
+            repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
+            
+            # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
+            repeated_persistent_tokens = repeated_persistent_tokens.expand(x.shape[0], -1, -1)
+            
+            x_with_persistent = torch.cat([repeated_persistent_tokens, x], dim=1) # Add persistent tokens to the sliding window attention  
+                                
+            attn = self.attention(x_with_persistent, **kwargs)[:, self.num_global_tokens:, :] # Remove persistent tokens from attention output
+        else:
+            attn = self.attention(x, **kwargs)
+            
         attn_with_mem = nn.Sigmoid()(self.gate_cache) * attn
 
         h = x + self.dropout(self.attention_norm(attn_with_mem))
@@ -302,14 +306,17 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             self.memory.train_initial_mlp()
         gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
         
-        repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
-        
-        # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
-        repeated_persistent_tokens = repeated_persistent_tokens.expand(x.shape[0], -1, -1)
-        
-        x_with_persistent = torch.cat([repeated_persistent_tokens, x], dim=1)      
-        
-        attn = self.attention(x_with_persistent, **kwargs)[:, self.num_global_tokens:, :] # Remove persistent tokens from attention output
+        if self.use_paddle_flash:
+            repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
+            
+            # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
+            repeated_persistent_tokens = repeated_persistent_tokens.expand(x.shape[0], -1, -1)
+            
+            x_with_persistent = torch.cat([repeated_persistent_tokens, x], dim=1) # Add persistent tokens to the sliding window attention  
+                                
+            attn = self.attention(x_with_persistent, **kwargs)[:, self.num_global_tokens:, :] # Remove persistent tokens from attention output
+        else:
+            attn = self.attention(x, **kwargs)
         attn_with_mem = nn.Sigmoid()(gates) * attn  # MAG gate
 
         # basic attn normalization + feed forward

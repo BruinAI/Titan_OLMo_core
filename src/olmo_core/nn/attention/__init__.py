@@ -362,7 +362,7 @@ class Attention(AttentionBase):
         use_paddle = kwargs.get("use_paddle_flash", False)
         if use_paddle:
             from .flash_attn_api import dispatch_paddle_flash_attn
-            return dispatch_paddle_flash_attn(
+            att = dispatch_paddle_flash_attn(
                 q, k, v,
                 window_size=self.window_size[0] if isinstance(self.window_size, tuple) else self.window_size,
                 num_global_tokens=kwargs.get("num_global_tokens", 0),
@@ -371,7 +371,7 @@ class Attention(AttentionBase):
                 causal=True
             )
             
-        if self.cp_enabled:
+        elif self.cp_enabled:
             assert self._cp_pg is not None and self._cp_load_balancer is not None
             if not self.use_flash:
                 raise RuntimeError(

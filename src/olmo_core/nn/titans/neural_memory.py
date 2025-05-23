@@ -169,10 +169,11 @@ class NeuralMemory(nn.Module):
         self.use_paddle_flash = use_paddle_flash
         self.num_global_tokens = num_global_tokens
         
-        self.persistent_tokens = nn.Parameter(
-        torch.empty(self.num_global_tokens, self.emb_dim)
-        )
-        torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.02)
+        if self.use_paddle_flash and self.num_global_tokens > 0:
+            self.persistent_tokens = nn.Parameter(
+            torch.empty(self.num_global_tokens, self.emb_dim)
+            )
+            torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.02)
 
         torch.nn.init.xavier_uniform_(self.K.weight)
         torch.nn.init.xavier_uniform_(self.V.weight)
@@ -249,14 +250,13 @@ class NeuralMemory(nn.Module):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
         
-        self.mlp_reset = False
-            
+        self.mlp_reset = False            
             
         z = x.detach()
            
         # NOT SURE IF THIS SHOULD GO BEFORE OR AFTER THE DETATCH
         
-        if self.use_paddle_flash:
+        if self.use_paddle_flash and self.num_global_tokens > 0:
             # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
             repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)
             
@@ -278,7 +278,7 @@ class NeuralMemory(nn.Module):
             self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec
         )
         if self.training:
-            self.mlp_states[-1] = next_mlp_params
+            self.mlp_states.append(next_mlp_params)
         return losses
 
     def init_mlp_template_weights(self, seed=42):

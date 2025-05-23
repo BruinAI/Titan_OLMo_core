@@ -55,14 +55,14 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 
 USE_MAG = True
 USE_SW = True
-MAX_TOKENS = 256
+MAX_TOKENS = 128
 PROFILE_MEM = False
-NUM_PERSISTENT = None # None for no persistent tokens
+NUM_PERSISTENT = 3 # None for no persistent tokens
 USE_PERSISTENT = (NUM_PERSISTENT is not None)
 TRAIN_MODEL = False
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
-MEMORY_LAYERS = [0, 1,] # Maximum number of memory layers I can have without crashing on 20gb 5/19
+MEMORY_LAYERS = [0, 1, 2, 3, 4] # Maximum number of memory layers I can have without crashing on 20gb 5/19
 
 if sys.platform == "darwin":  # if macos:
     USE_SW = False
@@ -81,7 +81,7 @@ if USE_MAG:
         kwargs["memory_config"] = memory_config
     else:
         # Apply only to specific layers
-        kwargs["block_name"] = TransformerBlockType.mag_reordered_norm
+        kwargs["block_name"] = TransformerBlockType.reordered_norm
         block_overrides = {}
         
         # Create block configs for specific memory layers
