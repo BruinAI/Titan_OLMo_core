@@ -31,6 +31,7 @@ from .flash_attn_api import (
     dispatch_flash_attn_qkvpacked,
     dispatch_ring_flash_attn,
     dispatch_ring_flash_attn_qkvpacked,
+    dispatch_paddle_flash_attn,  # Add this import
 )
 from .ring import (
     RingAttentionLlama3LoadBalancer,
@@ -59,6 +60,8 @@ class SlidingWindowAttentionConfig(Config):
     window_size: int = 4096
     force_first: bool = True
     force_last: bool = True
+    use_global_sw: bool = False
+    num_global_tokens: int = 0
 
     def should_use_swa(self, layer_idx: int, n_layers: int) -> bool:
         if self.force_first:
@@ -113,6 +116,8 @@ class AttentionConfig(Config):
     use_flash: Optional[bool] = None
     dtype: DType = DType.float32
     sliding_window: Optional[SlidingWindowAttentionConfig] = None
+    num_global_tokens: int = 0
+    use_global_sw: bool = False
 
     def num_params(self, d_model: int) -> int:
         """
@@ -270,6 +275,8 @@ class Attention(AttentionBase):
         qk_norm: Optional[LayerNormConfig] = None,
         dropout: float = 0.0,
         use_flash: bool = False,
+        use_global_sw: bool = False,  # Add this
+        num_global_tokens: int = 0,      # Add this
         window_size: Optional[int] = None,
         dtype: torch.dtype = torch.float32,
         init_device: str = "cpu",
@@ -310,7 +317,9 @@ class Attention(AttentionBase):
             assert isinstance(rope_class, (RotaryEmbedding, ComplexRotaryEmbedding))
             self.rope = rope_class
 
-        self.use_flash = use_flash
+        self.use_flash = use_flash            
+        self.use_global_sw = use_global_sw  # Store this
+        self.num_global_tokens = num_global_tokens  # Store this
 
         # Translate window size so that we only look left, not right.
         if window_size is not None:
@@ -345,9 +354,24 @@ class Attention(AttentionBase):
         max_doc_len_k: Optional[int] = None,
         local_k_slice: Optional[slice] = None,
         scale: Optional[float] = None,
+        **kwargs
     ) -> torch.Tensor:
         att: torch.Tensor
-        if self.cp_enabled:
+    
+        # Check if we should use PaddlePaddle flash attention
+        use_paddle = kwargs.get("use_global_sw", False)
+        if use_paddle:
+            from .flash_attn_api import dispatch_paddle_flash_attn
+            att = dispatch_paddle_flash_attn(
+                q, k, v,
+                window_size=self.window_size[0] if isinstance(self.window_size, tuple) else self.window_size,
+                num_global_tokens=kwargs.get("num_global_tokens", 0),
+                dropout_p=self.dropout_p,
+                softmax_scale=scale,
+                causal=True
+            )
+            
+        elif self.cp_enabled:
             assert self._cp_pg is not None and self._cp_load_balancer is not None
             if not self.use_flash:
                 raise RuntimeError(
@@ -491,6 +515,7 @@ class Attention(AttentionBase):
             )
 
         # shape: (batch_size, seq_len, n_heads, head_dim)
+        # Inside the forward method of Attention class
         att = self.sdpa(
             q,
             k,
@@ -502,6 +527,8 @@ class Attention(AttentionBase):
             max_doc_len_q=max_doc_len_q,
             max_doc_len_k=max_doc_len_k,
             local_k_slice=local_k_slice,
+            use_global_sw=getattr(self, 'use_global_sw', False),  # Pass from instance variable
+            num_global_tokens=getattr(self, 'num_global_tokens', 0)     # Pass from instance variable
         )
 
         # shape: (batch_size, seq_len, d_model)

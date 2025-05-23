@@ -218,10 +218,15 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         d_model = kwargs.get("d_model", None)
         assert d_model is not None and isinstance(d_model, int) and d_model > 0, "d_model must be a kwarg of type int and > 0"
         self.chunk_size = self.memory_config.chunk_size
+        
+        self.use_global_sw = self.attention.use_global_sw
+        self.num_global_tokens = self.attention.num_global_tokens
         self.memory = NeuralMemory(
             emb_dim=d_model,
             n_layers=self.memory_config.n_layers,
             hidden_dim=self.memory_config.hidden_dim_multiple * d_model,
+            use_global_sw = self.use_global_sw,
+            num_global_tokens = self.num_global_tokens,
         )
         self.sigmoid = nn.Sigmoid()
         self.gate_cache = None
@@ -260,10 +265,21 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         # If the cache is already initialized, that means we only need to get the latest memory update
         else:
             last_gate = self.memory.retrieve(last_x)
-            self.gate_cache = torch.cat([self.gate_cache, last_gate], 1)
-                                         
-        attn = self.attention(x, **kwargs)
-        attn_with_mem = self.sigmoid(self.gate_cache) * attn
+            self.gate_cache = torch.cat([self.gate_cache, last_gate], dim=1)
+                    # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
+        if self.use_global_sw:
+            repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
+            
+            # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
+            repeated_persistent_tokens = repeated_persistent_tokens.expand(x.shape[0], -1, -1)
+            
+            x_with_persistent = torch.cat([repeated_persistent_tokens, x], dim=1) # Add persistent tokens to the sliding window attention  
+                                
+            attn = self.attention(x_with_persistent, **kwargs)[:, self.num_global_tokens:, :] # Remove persistent tokens from attention output
+        else:
+            attn = self.attention(x, **kwargs)
+            
+        attn_with_mem = nn.Sigmoid()(self.gate_cache) * attn
 
         h = x + self.dropout(self.attention_norm(attn_with_mem))
         return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
@@ -288,8 +304,18 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             self.memory.train_initial_mlp()
         gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
         
-        attn = self.attention(x, **kwargs)
-        attn_with_mem = self.sigmoid(gates) * attn  # MAG gate
+        if self.use_global_sw:
+            repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
+            
+            # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
+            repeated_persistent_tokens = repeated_persistent_tokens.expand(x.shape[0], -1, -1)
+            
+            x_with_persistent = torch.cat([repeated_persistent_tokens, x], dim=1) # Add persistent tokens to the sliding window attention  
+                                
+            attn = self.attention(x_with_persistent, **kwargs)[:, self.num_global_tokens:, :] # Remove persistent tokens from attention output
+        else:
+            attn = self.attention(x, **kwargs)
+        attn_with_mem = nn.Sigmoid()(gates) * attn  # MAG gate
 
         # basic attn normalization + feed forward
         h = x + self.dropout(self.attention_norm(attn_with_mem))

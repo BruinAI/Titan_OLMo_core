@@ -57,8 +57,7 @@ USE_MAG = True
 USE_SW = True
 MAX_TOKENS = 128
 PROFILE_MEM = False
-NUM_PERSISTENT = 6
-TRAIN_MODEL = True
+TRAIN_MODEL = False
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
 MEMORY_LAYERS = [3, 7, 11, 15]  # every 4th layer
@@ -86,23 +85,25 @@ if USE_MAG:
         # Create block configs for specific memory layers
         for layer_idx in MEMORY_LAYERS:
             block_overrides[layer_idx] = TransformerBlockConfig(
-                name=TransformerBlockType.mag_reordered_norm,
-                attention=None,  # Will be filled by the config system
-                layer_norm=None,  # Will be filled by the config system
-                feed_forward=None,  # Will be filled by the config system
-                memory_config=memory_config,
-            )
+                    name=TransformerBlockType.mag_reordered_norm,
+                    attention=None,  # Will be filled by the config system
+                    layer_norm=None,  # Will be filled by the config system
+                    feed_forward=None,  # Will be filled by the config system
+                    memory_config=memory_config
+                )
         kwargs["block_overrides"] = block_overrides
 
 if USE_SW:
-    kwargs["sliding_window"] = SlidingWindowAttentionConfig(pattern=[True], window_size=memory_config.window_size)
+    kwargs["sliding_window"] = SlidingWindowAttentionConfig(
+            pattern=[True], 
+            window_size=memory_config.window_size,
+    )
     kwargs["use_flash"] = True
 
 tok_cfg = TokenizerConfig.dolma2()
 model_cfg = TransformerConfig.olmo2_1B(vocab_size=tok_cfg.padded_vocab_size(), **kwargs)
 
 model_cfg.name = transformer_config_name
-model_cfg.num_persistent_tokens = NUM_PERSISTENT
 
 model: torch.nn.Module = model_cfg.build()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -163,6 +164,7 @@ def generate(model, text, max_tokens=MAX_TOKENS) -> Generator[torch.types.Number
             yield next_token.item()
             # ending generation if EOS token is reached
             if next_token.item() == tokenizer.eos_token_id:
+                print("[Got EOS token]")
                 break
 
 if not TRAIN_MODEL:
@@ -172,7 +174,8 @@ if not TRAIN_MODEL:
         for token in generate(model, sample_text, max_tokens=MAX_TOKENS):
             streamed_token = tokenizer.decode([token], skip_special_tokens=True)
             print(streamed_token, end="", flush=True)
-            if token == tokenizer.eos_token:
+            if token == tokenizer.eos_token_id:
+                print("[Got EOS token]")
                 break
         print("[Max Tokens Reached]")
     if PROFILE_MEM:

@@ -15,10 +15,75 @@ try:
 except ImportError:
     ring_flash_attn = None
 
-
 def _flatten_batch_dim(x: torch.Tensor) -> torch.Tensor:
     B, T, *other = x.shape
     return x.view(B * T, *other)
+
+def sliding_window_causal_idx(b, h, q_idx, kv_idx, sliding_window, persistent_tokens):
+    causal_mask = q_idx >= kv_idx
+    window_mask = q_idx - kv_idx <= sliding_window 
+    persistent_mask = kv_idx <= persistent_tokens
+    return causal_mask & (window_mask | persistent_mask)
+
+def dispatch_paddle_flash_attn(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    window_size: int = 128,
+    num_global_tokens: int = 0,
+    dropout_p: float = 0.0,
+    softmax_scale: Optional[float] = None,
+    causal: bool = True,
+    **kwargs
+) -> torch.Tensor:
+    """Dispatch to PaddlePaddle's flash attention with global sliding window support.
+    
+    Args:
+        q, k, v: Query, key, value tensors
+        window_size: Size of sliding window
+        num_global_tokens: Number of global tokens that receive attention from all positions
+        dropout_p: Dropout probability
+        softmax_scale: Scaling factor for softmax
+        causal: Whether to use causal attention
+        
+    Returns:
+        torch.Tensor: Output of flash attention
+    """
+    if not causal:
+        raise NotImplementedError("Non-causal sliding window attention with global tokens is not implemented here.")
+
+    B, H, T_q, D_q = q.shape
+    _, _, T_k, _ = k.shape
+    
+    # Create query and key indices 
+    q_idx = torch.arange(T_q, device=q.device).view(1, 1, T_q, 1)
+    kv_idx = torch.arange(T_k, device=k.device).view(1, 1, 1, T_k)
+
+    # Generate the attention mask - True means positions to attend to
+    attn_mask_bool = sliding_window_causal_idx(
+        b=B,  # Not used by sliding_window_causal_idx 
+        h=H,  # Not used by sliding_window_causal_idx
+        q_idx=q_idx, 
+        kv_idx=kv_idx, 
+        sliding_window=window_size, 
+        persistent_tokens=num_global_tokens
+    )
+
+    # Invert the mask: True for positions to mask out (not attend)
+    attn_mask_for_sdpa = ~attn_mask_bool
+    
+    # Use PyTorch's scaled_dot_product_attention with the custom mask
+    out = torch.nn.functional.scaled_dot_product_attention(
+        q, 
+        k, 
+        v, 
+        attn_mask=attn_mask_for_sdpa, 
+        dropout_p=dropout_p,
+        is_causal=False,  # Using custom mask instead
+        scale=softmax_scale  # Directly use softmax_scale with the scale parameter
+    )
+    
+    return out.contiguous()
 
 
 def dispatch_flash_attn(
