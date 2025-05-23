@@ -228,9 +228,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             use_global_sw = self.use_global_sw,
             num_global_tokens = self.num_global_tokens,
         )
-        # self.persistent_memory = nn.Parameter(
-        #     torch.randn(self.memory_config.persistent_mem_len, d_model)
-        # )
+        self.sigmoid = nn.Sigmoid()
         self.gate_cache = None
 
     def forward(

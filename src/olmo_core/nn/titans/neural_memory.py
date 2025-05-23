@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn.functional import normalize
 from torch.func import functional_call, grad_and_value, vmap
 from typing import List
+import regex as re
 
 
 def loss_one(model, param_dict, x, target):
@@ -35,10 +36,10 @@ class ParallelMLPs(nn.Module):
                 f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
             )
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
-        return torch.stack(outputs, dim=0)
+        return torch.stack(outputs, dim=0) + x  # residual connection
     
-    @torch.compile(fullgraph=True)
-    def update_memory(self, current_params, surprise, keys, values, beta_vec, eta_vec, theta_vec):
+    @torch.compile()
+    def update_memory(self, current_params, surprise, keys, values, beta_vecs, eta_vecs, theta_vecs):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
             grads, losses = per_sample_grads_and_losses(self, current_params, keys, values)
@@ -49,6 +50,14 @@ class ParallelMLPs(nn.Module):
                     if self.training:
                         new_params[name] = param.detach().clone()
                     continue
+                
+                if idx := re.search(r"\.(\d+)\.", name):
+                    idx = int(idx.group(1))
+                else:
+                    raise ValueError(f"Parameter name {name} does not match expected format.")
+                
+                theta_vec, eta_vec, beta_vec = theta_vecs[idx], eta_vecs[idx], beta_vecs[idx]  # (T,)
+
                 # ================================================================
                 # Recurrence definitions (for context)
                 # --------------------------------------------------------
@@ -61,14 +70,14 @@ class ParallelMLPs(nn.Module):
                 #   q_t              = ∏_{i=0}^{t} η_i
                 #
                 #   w_k              =  (∏_{i=k+1}^{T-1} β_i) · (∏_{i=0}^{k} η_i)
-                #                     =  β_{k+1} β_{k+2} … β_{T-1} · η_0 η_1 … η_k
+                #                    =  β_{k+1} β_{k+2} … β_{T-1} · η_0 η_1 … η_k
                 #
                 #   A_T              =  Σ_{k=0}^{T-1} w_k
                 #
                 #   B_{T,j}          =  (Σ_{k=j}^{T-1} w_k) · q_j⁻¹
                 #   D_{T,j}          =  q_T · q_j⁻¹
                 #
-                #   M_T (=param)     =  p_T·M_0  +  A_T·S_0  −  Σ_j θ·B_{T,j}·u_j
+                #   M_T (param)      =  p_T·M_0  +  A_T·S_0  −  Σ_j θ·B_{T,j}·u_j
                 #   S_T (surprise)   =  q_T·S_0  −  Σ_j θ·D_{T,j}·u_j
                 # ================================================================
 
@@ -147,8 +156,7 @@ class NeuralMemory(nn.Module):
     """
 
     def __init__(self, emb_dim = 16, n_layers = 2, 
-                 hidden_dim = 32, alpha = 0.999, 
-                 eta = 0.60, theta = 0.05, nu = 0.01,
+                 hidden_dim = 32, nu = 0.01,
                  use_global_sw = False, num_global_tokens = 0):
         super().__init__()
 
@@ -161,6 +169,8 @@ class NeuralMemory(nn.Module):
         self.surprise = {}
         self.mlp_template_weights = self.init_mlp_template_weights()
         self.mlp_reset = True
+        self.use_conv = use_conv
+        self.nu = nu
 
         self.K = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to keys
         self.Q = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to queries
@@ -175,16 +185,31 @@ class NeuralMemory(nn.Module):
             )
             torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.2)
 
+        self.silu = nn.SiLU()
+        self.sigmoid = nn.Sigmoid()
+
         torch.nn.init.xavier_uniform_(self.K.weight)
         torch.nn.init.xavier_uniform_(self.V.weight)
+        torch.nn.init.xavier_uniform_(self.Q.weight)
 
-        self.alpha = alpha
-        self.beta = 1 - alpha
-        self.eta = eta
-        self.theta = theta
-        self.nu = nu
+        if self.use_conv:
+            # Depthwise-separable convolutions
+            self.conv_q = nn.Conv1d(emb_dim, emb_dim, kernel_size=3, padding='same', groups=emb_dim, bias=False)
+            self.conv_k = nn.Conv1d(emb_dim, emb_dim, kernel_size=3, padding='same', groups=emb_dim, bias=False)
+            self.conv_v = nn.Conv1d(emb_dim, emb_dim, kernel_size=3, padding='same', groups=emb_dim, bias=False)
 
-        self.silu = nn.SiLU()
+            torch.nn.init.xavier_uniform_(self.conv_q.weight)
+            torch.nn.init.xavier_uniform_(self.conv_k.weight)
+            torch.nn.init.xavier_uniform_(self.conv_v.weight)
+
+        self.alpha = nn.Linear(emb_dim, 1, bias=False)
+        self.eta = nn.Linear(emb_dim, 1, bias=False)
+        self.theta = nn.Linear(emb_dim, 1, bias=False)
+
+        torch.nn.init.xavier_uniform_(self.alpha.weight)
+        torch.nn.init.xavier_uniform_(self.eta.weight)
+        torch.nn.init.xavier_uniform_(self.theta.weight)
+
         self.surprise = {}
 
     def build_mlp(self):
@@ -194,9 +219,9 @@ class NeuralMemory(nn.Module):
         """
         # Define the layers of the network
         if self.n_layers == 1:
-            layers = [nn.Linear(self.emb_dim, self.emb_dim)]
+            layers: List[nn.Module] = [nn.Linear(self.emb_dim, self.emb_dim)]
         else:
-            layers = [
+            layers: List[nn.Module] = [
                 nn.Linear(self.emb_dim, self.hidden_dim),
                 nn.SiLU()
             ]
@@ -206,6 +231,7 @@ class NeuralMemory(nn.Module):
                     nn.SiLU()
                 ]
             layers.append(nn.Linear(self.hidden_dim, self.emb_dim))
+        layers.append(nn.LayerNorm(self.emb_dim))  # Layer normalization
         return nn.Sequential(*layers)
 
     def get_mlp_params(self):
@@ -224,6 +250,7 @@ class NeuralMemory(nn.Module):
             mlps.append(mlp)  # adding the mlp to the list
         parallel_mlps = ParallelMLPs(mlps, self.mlp_template_weights).to(device)  # type: ignore
         self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
+        # self.mlps_processor = parallel_mlps
 
         self.mlp_states.append(self.get_mlp_params())
 
@@ -241,11 +268,19 @@ class NeuralMemory(nn.Module):
     def forward(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
-        
-        queries = normalize(self.silu(self.Q(x)))            
+
+        queries = self.silu(self.Q(x))
+        if self.use_conv:
+            # Apply 1D depthwise-separable convolution
+            # Input to Conv1d: (B, N, L), current shape: (B, L, N)
+            queries = queries.transpose(1, 2)  # B, N, L -> B, L, N
+            queries = self.conv_q(queries)
+            queries = queries.transpose(1, 2)  # B, L, N -> B, N, L
+        queries = normalize(queries) # Normalize after convolution
+
         return functional_call(self.mlps_processor, self.mlp_states[-1], queries)
 
-    @torch.compile(fullgraph=True)
+    @torch.compile()
     def update(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
@@ -267,12 +302,29 @@ class NeuralMemory(nn.Module):
             z = torch.cat([repeated_persistent_tokens, z], dim=1)
 
         # Evaluate the corresponding keys and values
-        keys = normalize(self.silu(self.K(z)))
-        values = normalize(self.silu(self.V(z)))
+        keys = self.silu(self.K(z))
+        values = self.silu(self.V(z))
 
-        beta_vec = torch.full((keys.shape[1],), self.beta, device=keys.device)
-        eta_vec = torch.full((keys.shape[1],), self.eta, device=keys.device)
-        theta_vec = torch.full((keys.shape[1],), self.theta, device=keys.device)
+        if self.use_conv:
+            # Apply 1D depthwise-separable convolution to keys
+            # B, N, L -> B, L, N
+            keys = keys.transpose(1, 2)
+            values = values.transpose(1, 2)
+
+            keys = self.conv_k(keys)
+            values = self.conv_v(values)
+
+            # B, L, N -> B, N, L
+            keys = keys.transpose(1, 2)
+            values = values.transpose(1, 2)
+        
+        keys = normalize(keys)
+        values = normalize(values)
+
+        # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
+        beta_vec = 1 - self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
+        eta_vec = self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
+        theta_vec = self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)
 
         self.surprise, losses, next_mlp_params = self.mlps_processor.update_memory(  # type: ignore
             self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec
