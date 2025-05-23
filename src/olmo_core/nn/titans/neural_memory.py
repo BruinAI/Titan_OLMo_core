@@ -35,7 +35,7 @@ class ParallelMLPs(nn.Module):
                 f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
             )
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
-        return torch.stack(outputs, dim=0)
+        return torch.stack(outputs, dim=0) + x  # residual connection
     
     @torch.compile(fullgraph=True)
     def update_memory(self, current_params, surprise, keys, values, beta_vec, eta_vec, theta_vec):
@@ -146,7 +146,7 @@ class NeuralMemory(nn.Module):
     2. but has shared, learned K and V matrices ad 
     """
 
-    def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32, alpha = 0.999, eta = 0.60, theta = 0.05, nu = 0.01):
+    def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32, alpha = 0.999, eta = 0.60, theta = 0.05, nu = 0.01, use_conv=False):
         super().__init__()
 
         # Define the layers of the network
@@ -158,6 +158,7 @@ class NeuralMemory(nn.Module):
         self.surprise = {}
         self.mlp_template_weights = self.init_mlp_template_weights()
         self.mlp_reset = True
+        self.use_conv = use_conv
 
         self.K = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to keys
         self.Q = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to queries
@@ -165,6 +166,17 @@ class NeuralMemory(nn.Module):
 
         torch.nn.init.xavier_uniform_(self.K.weight)
         torch.nn.init.xavier_uniform_(self.V.weight)
+        torch.nn.init.xavier_uniform_(self.Q.weight)
+
+        if self.use_conv:
+            # Depthwise-separable convolutions
+            self.conv_q = nn.Conv1d(emb_dim, emb_dim, kernel_size=3, padding='same', groups=emb_dim, bias=False)
+            self.conv_k = nn.Conv1d(emb_dim, emb_dim, kernel_size=3, padding='same', groups=emb_dim, bias=False)
+            self.conv_v = nn.Conv1d(emb_dim, emb_dim, kernel_size=3, padding='same', groups=emb_dim, bias=False)
+
+            torch.nn.init.xavier_uniform_(self.conv_q.weight)
+            torch.nn.init.xavier_uniform_(self.conv_k.weight)
+            torch.nn.init.xavier_uniform_(self.conv_v.weight)
 
         self.alpha = alpha
         self.beta = 1 - alpha
@@ -182,9 +194,9 @@ class NeuralMemory(nn.Module):
         """
         # Define the layers of the network
         if self.n_layers == 1:
-            layers = [nn.Linear(self.emb_dim, self.emb_dim)]
+            layers: List[nn.Module] = [nn.Linear(self.emb_dim, self.emb_dim)]
         else:
-            layers = [
+            layers: List[nn.Module] = [
                 nn.Linear(self.emb_dim, self.hidden_dim),
                 nn.SiLU()
             ]
@@ -194,6 +206,7 @@ class NeuralMemory(nn.Module):
                     nn.SiLU()
                 ]
             layers.append(nn.Linear(self.hidden_dim, self.emb_dim))
+        layers.append(nn.LayerNorm(self.emb_dim))  # Layer normalization
         return nn.Sequential(*layers)
 
     def get_mlp_params(self):
@@ -229,7 +242,15 @@ class NeuralMemory(nn.Module):
     def forward(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
-        queries = normalize(self.silu(self.Q(x)))
+        queries = self.silu(self.Q(x))
+        if self.use_conv:
+            # Apply 1D depthwise-separable convolution
+            # Input to Conv1d: (B, N, L), current shape: (B, L, N)
+            queries = queries.transpose(1, 2)  # B, N, L -> B, L, N
+            queries = self.conv_q(queries)
+            queries = queries.transpose(1, 2)  # B, L, N -> B, N, L
+        queries = normalize(queries) # Normalize after convolution
+
         return functional_call(self.mlps_processor, self.mlp_states[-1], queries)
 
     @torch.compile(fullgraph=True)
@@ -241,8 +262,24 @@ class NeuralMemory(nn.Module):
         z = x.detach()
 
         # Evaluate the corresponding keys and values
-        keys = normalize(self.silu(self.K(z)))
-        values = normalize(self.silu(self.V(z)))
+        keys = self.silu(self.K(z))
+        values = self.silu(self.V(z))
+
+        if self.use_conv:
+            # Apply 1D depthwise-separable convolution to keys
+            # B, N, L -> B, L, N
+            keys = keys.transpose(1, 2)
+            values = values.transpose(1, 2)
+
+            keys = self.conv_k(keys)
+            values = self.conv_v(values)
+
+            # B, L, N -> B, N, L
+            keys = keys.transpose(1, 2)
+            values = values.transpose(1, 2)
+        
+        keys = normalize(keys)
+        values = normalize(values)
 
         beta_vec = torch.full((keys.shape[1],), self.beta, device=keys.device)
         eta_vec = torch.full((keys.shape[1],), self.eta, device=keys.device)
