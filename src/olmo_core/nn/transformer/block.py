@@ -223,9 +223,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             n_layers=self.memory_config.n_layers,
             hidden_dim=self.memory_config.hidden_dim_multiple * d_model,
         )
-        # self.persistent_memory = nn.Parameter(
-        #     torch.randn(self.memory_config.persistent_mem_len, d_model)
-        # )
+        self.sigmoid = nn.Sigmoid()
         self.gate_cache = None
 
     def forward(
@@ -265,7 +263,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             self.gate_cache = torch.cat([self.gate_cache, last_gate], 1)
                                          
         attn = self.attention(x, **kwargs)
-        attn_with_mem = nn.Sigmoid()(self.gate_cache) * attn
+        attn_with_mem = self.sigmoid(self.gate_cache) * attn
 
         h = x + self.dropout(self.attention_norm(attn_with_mem))
         return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
@@ -291,7 +289,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
         
         attn = self.attention(x, **kwargs)
-        attn_with_mem = nn.Sigmoid()(gates) * attn  # MAG gate
+        attn_with_mem = self.sigmoid(gates) * attn  # MAG gate
 
         # basic attn normalization + feed forward
         h = x + self.dropout(self.attention_norm(attn_with_mem))

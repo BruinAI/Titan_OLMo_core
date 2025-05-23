@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn.functional import normalize
 from torch.func import functional_call, grad_and_value, vmap
 from typing import List
+import regex as re
 
 
 def loss_one(model, param_dict, x, target):
@@ -37,8 +38,8 @@ class ParallelMLPs(nn.Module):
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
         return torch.stack(outputs, dim=0) + x  # residual connection
     
-    @torch.compile(fullgraph=True)
-    def update_memory(self, current_params, surprise, keys, values, beta_vec, eta_vec, theta_vec):
+    @torch.compile()
+    def update_memory(self, current_params, surprise, keys, values, beta_vecs, eta_vecs, theta_vecs):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
             grads, losses = per_sample_grads_and_losses(self, current_params, keys, values)
@@ -49,6 +50,14 @@ class ParallelMLPs(nn.Module):
                     if self.training:
                         new_params[name] = param.detach().clone()
                     continue
+                
+                if idx := re.search(r"\.(\d+)\.", name):
+                    idx = int(idx.group(1))
+                else:
+                    raise ValueError(f"Parameter name {name} does not match expected format.")
+                
+                theta_vec, eta_vec, beta_vec = theta_vecs[idx], eta_vecs[idx], beta_vecs[idx]  # (T,)
+
                 # ================================================================
                 # Recurrence definitions (for context)
                 # --------------------------------------------------------
@@ -61,14 +70,14 @@ class ParallelMLPs(nn.Module):
                 #   q_t              = ∏_{i=0}^{t} η_i
                 #
                 #   w_k              =  (∏_{i=k+1}^{T-1} β_i) · (∏_{i=0}^{k} η_i)
-                #                     =  β_{k+1} β_{k+2} … β_{T-1} · η_0 η_1 … η_k
+                #                    =  β_{k+1} β_{k+2} … β_{T-1} · η_0 η_1 … η_k
                 #
                 #   A_T              =  Σ_{k=0}^{T-1} w_k
                 #
                 #   B_{T,j}          =  (Σ_{k=j}^{T-1} w_k) · q_j⁻¹
                 #   D_{T,j}          =  q_T · q_j⁻¹
                 #
-                #   M_T (=param)     =  p_T·M_0  +  A_T·S_0  −  Σ_j θ·B_{T,j}·u_j
+                #   M_T (param)      =  p_T·M_0  +  A_T·S_0  −  Σ_j θ·B_{T,j}·u_j
                 #   S_T (surprise)   =  q_T·S_0  −  Σ_j θ·D_{T,j}·u_j
                 # ================================================================
 
@@ -146,7 +155,7 @@ class NeuralMemory(nn.Module):
     2. but has shared, learned K and V matrices ad 
     """
 
-    def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32, alpha = 0.999, eta = 0.60, theta = 0.05, nu = 0.01, use_conv=False):
+    def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32, nu=.01, use_conv=False):
         super().__init__()
 
         # Define the layers of the network
@@ -159,10 +168,14 @@ class NeuralMemory(nn.Module):
         self.mlp_template_weights = self.init_mlp_template_weights()
         self.mlp_reset = True
         self.use_conv = use_conv
+        self.nu = nu
 
         self.K = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to keys
         self.Q = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to queries
         self.V = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to values
+
+        self.silu = nn.SiLU()
+        self.sigmoid = nn.Sigmoid()
 
         torch.nn.init.xavier_uniform_(self.K.weight)
         torch.nn.init.xavier_uniform_(self.V.weight)
@@ -178,13 +191,14 @@ class NeuralMemory(nn.Module):
             torch.nn.init.xavier_uniform_(self.conv_k.weight)
             torch.nn.init.xavier_uniform_(self.conv_v.weight)
 
-        self.alpha = alpha
-        self.beta = 1 - alpha
-        self.eta = eta
-        self.theta = theta
-        self.nu = nu
+        self.alpha = nn.Linear(emb_dim, 1, bias=False)
+        self.eta = nn.Linear(emb_dim, 1, bias=False)
+        self.theta = nn.Linear(emb_dim, 1, bias=False)
 
-        self.silu = nn.SiLU()
+        torch.nn.init.xavier_uniform_(self.alpha.weight)
+        torch.nn.init.xavier_uniform_(self.eta.weight)
+        torch.nn.init.xavier_uniform_(self.theta.weight)
+
         self.surprise = {}
 
     def build_mlp(self):
@@ -225,6 +239,7 @@ class NeuralMemory(nn.Module):
             mlps.append(mlp)  # adding the mlp to the list
         parallel_mlps = ParallelMLPs(mlps, self.mlp_template_weights).to(device)  # type: ignore
         self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
+        # self.mlps_processor = parallel_mlps
 
         self.mlp_states.append(self.get_mlp_params())
 
@@ -253,7 +268,7 @@ class NeuralMemory(nn.Module):
 
         return functional_call(self.mlps_processor, self.mlp_states[-1], queries)
 
-    @torch.compile(fullgraph=True)
+    @torch.compile()
     def update(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
@@ -281,9 +296,10 @@ class NeuralMemory(nn.Module):
         keys = normalize(keys)
         values = normalize(values)
 
-        beta_vec = torch.full((keys.shape[1],), self.beta, device=keys.device)
-        eta_vec = torch.full((keys.shape[1],), self.eta, device=keys.device)
-        theta_vec = torch.full((keys.shape[1],), self.theta, device=keys.device)
+        # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
+        beta_vec = 1 - self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
+        eta_vec = self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
+        theta_vec = self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)
 
         self.surprise, losses, next_mlp_params = self.mlps_processor.update_memory(  # type: ignore
             self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec
