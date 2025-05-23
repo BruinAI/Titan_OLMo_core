@@ -250,6 +250,9 @@ class NeuralMemory(nn.Module):
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
         
         self.mlp_reset = False
+            
+            
+        z = x.detach()
            
         # NOT SURE IF THIS SHOULD GO BEFORE OR AFTER THE DETATCH
         
@@ -258,13 +261,10 @@ class NeuralMemory(nn.Module):
             repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)
             
             # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
-            repeated_persistent_tokens = repeated_persistent_tokens.expand(x.shape[0], -1, -1)
+            repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)
             
             # Concatenate with input along sequence dimension
-            x = torch.cat([repeated_persistent_tokens, x], dim=1)
-            
-            
-        z = x.detach()
+            z = torch.cat([repeated_persistent_tokens, z], dim=1)
 
         # Evaluate the corresponding keys and values
         keys = normalize(self.silu(self.K(z)))

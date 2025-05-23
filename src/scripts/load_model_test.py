@@ -57,12 +57,12 @@ USE_MAG = True
 USE_SW = True
 MAX_TOKENS = 256
 PROFILE_MEM = False
-NUM_PERSISTENT = 4 # None for no persistent tokens
+NUM_PERSISTENT = None # None for no persistent tokens
 USE_PERSISTENT = (NUM_PERSISTENT is not None)
 TRAIN_MODEL = False
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
-MEMORY_LAYERS = [0, 1, 2, 3] # Maximum number of memory layers I can have without crashing on 20gb 5/19
+MEMORY_LAYERS = [0, 1,] # Maximum number of memory layers I can have without crashing on 20gb 5/19
 
 if sys.platform == "darwin":  # if macos:
     USE_SW = False
