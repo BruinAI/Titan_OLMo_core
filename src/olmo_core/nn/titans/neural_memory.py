@@ -157,7 +157,8 @@ class NeuralMemory(nn.Module):
 
     def __init__(self, emb_dim = 16, n_layers = 2, 
                  hidden_dim = 32, nu = 0.01,
-                 use_global_sw = False, num_global_tokens = 0):
+                 use_global_sw = False, num_global_tokens = 0,
+                 use_conv=False):
         super().__init__()
 
         # Define the layers of the network
