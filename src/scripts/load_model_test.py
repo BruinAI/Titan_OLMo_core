@@ -207,7 +207,7 @@ else:
         target = torch.nn.functional.one_hot(input_ids[:, 1:], num_classes=model_cfg.vocab_size).float()
         x = input_ids[:, :-1].clone()
         for i in tqdm(range(3)):
-            outputs = model(x, attention_mask=attention_mask)  # [:, NUM_PERSISTENT:, :]
+            outputs = model(x, attention_mask=attention_mask)
             loss = ce_loss(outputs, target)
             loss.backward()
             optimizer.step()

@@ -1,7 +1,8 @@
 import torch
 from torch import nn
-from torch.nn.functional import normalize
+import torch.nn.functional as F
 from torch.func import functional_call
+import torch.utils.checkpoint as cp
 from typing import List
 import regex as re
 
@@ -16,7 +17,7 @@ import regex as re
 #         target: The target tensor.  (B x seq_len x emb_dim)
 #     """
 #     logits = functional_call(model, param_dict, x)
-#     return nn.functional.mse_loss(logits, target)
+#     return F.mse_loss(logits, target)
 
 # grad_and_loss_one = grad_and_value(loss_one, argnums=1)  # takes the gradient and value of the loss w.r.t. the model parameters
 # per_sample_grads_and_losses = vmap(grad_and_loss_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients and value
@@ -72,10 +73,10 @@ class ParallelMLPs(nn.Module):
         # ---------- D_{T,j}  (shape: T) ----------
         D_coeffs = theta_vecs * q_suffix                                # −θ · D_{T,j}: B, T
         
-        return p_T, q_T, A_T, B_coeffs, D_coeffs
+        return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
     # @torch.compile()
-    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs):
+    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
             
@@ -103,54 +104,57 @@ class ParallelMLPs(nn.Module):
             # ================================================================
             p_T, q_T, A_T, B_coeffs, D_coeffs = self.calculate_coeffs(beta_vecs, eta_vecs, theta_vecs)
 
-            outputs = functional_call(self, current_params, keys)
-
-            # GRAD DESC FOR MEMORY UPDATE
-            # scaling loss by B_coeffs
-            scaled_outputs = outputs * torch.sqrt(B_coeffs.unsqueeze(-1))
-            scaled_values = values * torch.sqrt(B_coeffs.unsqueeze(-1))
+            if ckpt_memory:
+                # Using checkpointing to save memory (recomputes forward pass during back-prop instead of storing all activations)
+                def _fwd(keys):
+                    return functional_call(self, current_params, keys)
+                outputs = cp.checkpoint(_fwd, keys.detach().requires_grad_(), use_reentrant=False)
+            else:
+                outputs = functional_call(self, current_params, keys)
             
-            mem_loss = nn.functional.mse_loss(scaled_outputs, scaled_values)    # Compute loss
-            grads = torch.autograd.grad(outputs=mem_loss, inputs=current_params.values(), retain_graph=True)
+            sqerr = (outputs - values).pow(2)  # squared error
+            
+            input_params = tuple(current_params.values())
+            mem_grads = torch.autograd.grad(  # gradient descent for memory update
+                outputs=sqerr, inputs=input_params, grad_outputs=B_coeffs.expand_as(sqerr), allow_unused=True, retain_graph=True
+            )
+            surp_grads = torch.autograd.grad(  # gradient descent for surprise update
+                outputs=sqerr, inputs=input_params, grad_outputs=D_coeffs.expand_as(sqerr), allow_unused=True
+            )
 
             # p_T * M_0 + A_T[idx] * S_0 + gradient_term
             def update_param(name, grad):
                 if grad is None:
-                    return current_params[name].detach().clone()
+                    return current_params[name].detach().clone().requires_grad_(True)
                 idx = self.name_to_batch_idx[name]
                 old_param = current_params[name]  # (*param_shape)
                 surprise = surprises.get(name, torch.zeros_like(old_param))
                 # M_T (param) = p_T·M_0 + A_T·S_0 − Σ_j θ·B_{T,j}·u_j
-                return p_T[idx] * old_param + A_T[idx] * surprise - grad
-
-            new_params = {
-                name: update_param(name, grad)
-                for name, grad in zip(current_params.keys(), grads)
-            }
-
-            # GRAD DESC FOR SURPRISE UPDATE
-            # scaling loss by D_coeffs
-            scaled_outputs = outputs * torch.sqrt(D_coeffs.unsqueeze(-1))
-            scaled_values = values * torch.sqrt(D_coeffs.unsqueeze(-1))
-
-            surprise_loss = nn.functional.mse_loss(scaled_outputs, scaled_values)    # Compute loss
-            grads = torch.autograd.grad(outputs=surprise_loss, inputs=current_params.values())
+                new_param = p_T[idx] * old_param + A_T[idx] * surprise - grad
+                return new_param.detach().requires_grad_(True)
 
             # q_T * S_0 - Σ_j θ·D_{T,j}·u_j
-            def update_suprise(name, grad):
+            def update_surprise(name, grad):
                 if grad is None:
-                    return torch.zeros_like(current_params[name])
+                    return torch.zeros_like(current_params[name]).detach()
                 idx = self.name_to_batch_idx[name]
                 old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))
                 # S_T (surprise) = q_T·S_0 − Σ_j θ·D_{T,j}·u_j
-                return q_T[idx] * old_surprise - grad
+                new_surprise = q_T[idx] * old_surprise - grad
+                return new_surprise.detach()
 
-            surprises = {
-                name: update_suprise(name, grad)
-                for name, grad in zip(current_params.keys(), grads)
+            new_params = {
+                name: update_param(name, grad)
+                for name, grad in zip(current_params.keys(), mem_grads)
             }
 
-            return surprises, mem_loss, new_params
+            surprises = {
+                name: update_surprise(name, grad)
+                for name, grad in zip(current_params.keys(), surp_grads)
+            }
+
+            mse = sqerr.sum(dim=-1).mean()
+            return surprises, mse, new_params
         
     def reset_weights_from_template(self, template_weights: nn.ParameterDict):
         """
@@ -274,7 +278,7 @@ class NeuralMemory(nn.Module):
             mlp = self.build_mlp().to(device)  # build the mlp
             mlps.append(mlp)  # adding the mlp to the list
         parallel_mlps = ParallelMLPs(mlps, self.mlp_template_weights).to(device)  # type: ignore
-        self.mlps_processor = torch.compile(parallel_mlps)  # type: ignore
+        self.mlps_processor = torch.compile(parallel_mlps, mode="reduce-overhead")  # type: ignore
         # self.mlps_processor = parallel_mlps
 
         self.mlp_states.append(self.get_mlp_params())
@@ -301,7 +305,7 @@ class NeuralMemory(nn.Module):
             queries = queries.transpose(1, 2)  # B, N, L -> B, L, N
             queries = self.conv_q(queries)
             queries = queries.transpose(1, 2)  # B, L, N -> B, N, L
-        queries = normalize(queries) # Normalize after convolution
+        queries = F.normalize(queries) # Normalize after convolution
 
         return functional_call(self.mlps_processor, self.mlp_states[-1], queries)
 
@@ -343,8 +347,8 @@ class NeuralMemory(nn.Module):
             keys = keys.transpose(1, 2)
             values = values.transpose(1, 2)
         
-        keys = normalize(keys)
-        values = normalize(values)
+        keys = F.normalize(keys)
+        values = F.normalize(values)
 
         # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
         beta_vec = 1 - self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
