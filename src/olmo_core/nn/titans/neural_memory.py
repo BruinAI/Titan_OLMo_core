@@ -13,13 +13,14 @@ class ParallelMLPs(nn.Module):
     """
     ParallelMLPs is a wrapper for multiple MLPs that allows for parallel processing of inputs with torch.compile.
     """
-    def __init__(self, mlp_list: List[nn.Module], template_weights: nn.ParameterDict):
+    def __init__(self, mlp_list: List[nn.Module], template_weights: nn.ParameterDict, memory_l2_weight: float):
         super().__init__()
         self.mlps = nn.ModuleList(mlp_list)
         self.reset_weights_from_template(template_weights)
         self.name_to_batch_idx = {  # the index of the MLP the param is from which = its batch index
             name: self.get_name_idx(name) for name, _ in self.named_parameters()
         }
+        self.memory_l2_weight = memory_l2_weight
 
     @staticmethod
     def get_name_idx(name: str) -> int:
@@ -250,7 +251,7 @@ class ParallelMLPs(nn.Module):
             # clip norms
             clip_mem_g = 5
             clip_sur_g = 10
-            clip_w = 1e3
+            clip_w = 100
             
             # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
             # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
@@ -262,10 +263,11 @@ class ParallelMLPs(nn.Module):
                 if grad is None:
                     return current_params[name].detach().clone().requires_grad_(True)
                 idx = self.name_to_batch_idx[name]
-                old_param = current_params[name]  # (*param_shape)
-                surprise = surprises.get(name, torch.zeros_like(old_param))
+                orig_param = current_params[name]  # (*param_shape)
+                surprise = surprises.get(name, torch.zeros_like(orig_param))
                 # M_T (param) = p_T·M_0 + A_T·S_0 − Σ_j θ·B_{T,j}·u_j
-                new_param = p_T[idx] * old_param + A_T[idx] * surprise - grad
+                orig_weight_coeff = p_T[idx] * (1 - 2 * self.memory_l2_weight)
+                new_param = orig_weight_coeff * orig_param + A_T[idx] * surprise - grad
                 return new_param.detach().clamp(-clip_w, clip_w).requires_grad_(True)
 
             # q_T * S_0 - Σ_j θ·D_{T,j}·u_j
@@ -319,7 +321,7 @@ class NeuralMemory(nn.Module):
     """
 
     def __init__(self, emb_dim = 16, n_layers = 2, 
-                 hidden_dim = 32, nu = 0.001,
+                 hidden_dim = 32, nu = 0.001, l2_memory_weight = 0.05,
                  use_global_sw = False, num_global_tokens = 0,
                  use_conv=False, retrieve_layer=True,
                  audit_grad=False):
@@ -335,6 +337,7 @@ class NeuralMemory(nn.Module):
         self.mlp_template_weights = self.init_mlp_template_weights()
         self.mlp_reset = True
         self.nu = nu
+        self.l2_memory_weight = l2_memory_weight
         self.use_conv = use_conv
         self.retrieve_layer = retrieve_layer
         self.audit_grad = audit_grad
@@ -427,7 +430,7 @@ class NeuralMemory(nn.Module):
         for i in range(batch_size):
             mlp = self.build_mlp().to(device)  # build the mlp
             mlps.append(mlp)  # adding the mlp to the list
-        parallel_mlps = ParallelMLPs(mlps, self.mlp_template_weights).to(device)  # type: ignore
+        parallel_mlps = ParallelMLPs(mlps, self.mlp_template_weights, memory_l2_weight=self.l2_memory_weight).to(device)  # type: ignore
         self.mlps_processor = torch.compile(parallel_mlps, mode="reduce-overhead")  # type: ignore
         # self.mlps_processor = parallel_mlps
 
