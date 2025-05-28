@@ -2,7 +2,6 @@ import sys
 import os
 from typing import Generator
 from tqdm import tqdm
-from transformers.commands import train
 if "olmo_core" not in sys.path:
     sys.path.append("..")
 if not os.getcwd().endswith("src/scripts"):  # for VS Code debugging
@@ -56,13 +55,14 @@ USE_SW = True
 MAX_TOKENS = 256
 TRAIN_MODEL = True
 PROFILE_MEM = False
+CPU_OFFLOAD = False
 
 train_str = """The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat. \
-                The dog got very upset with the cat. The cat threw a buncha milk at the dog. Not a pretty sight. \
-                When life gave the cat lemons it made lemonage. Oh how the cat wanted to eat hot dogs but the dog would not have it. \
+                The dog got very upset with the cat. The cat threw a bunch of milk at the dog. Not a pretty sight. \
+                When life gave the cat lemons it made lemonade. Oh how the cat wanted to eat hot dogs but the dog would not have it. \
                 The very next day the cat tried to make pork sliders, but the dog did not want pork. It wanted freedom. \
                 The dog felt in its bones the oppression its kin endured for thousands of years. It wanted to break free \
-                of the shackles, but it could not bring itself to do so. For if it broke free, the world would isntantly become \
+                of the shackles, but it could not bring itself to do so. For if it broke free, the world would instantly become \
                 a much more cruel place. Because taxes."""
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
@@ -445,7 +445,7 @@ else:
 
 
     torch.autograd.set_detect_anomaly(True)
-    train_model_test(verbose=PROFILE_MEM, cpu_offload=True, train_str=train_str)
+    train_model_test(verbose=PROFILE_MEM, cpu_offload=CPU_OFFLOAD, train_str=train_str)
     subtext = " ".join(train_str.split()[:8])
     print_generated_text(subtext, max_tokens=MAX_TOKENS)
 

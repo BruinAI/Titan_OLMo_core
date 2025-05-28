@@ -7,26 +7,6 @@ from typing import List
 import regex as re
 
 
-# def loss_one(model, param_dict, x, target):
-#     """
-#     Loss for each index in seq
-#     Args:
-#         model: The model to be used.
-#         param_dict: The parameters of the model.
-#         x: The input tensor.  (B x seq_len x emb_dim)
-#         target: The target tensor.  (B x seq_len x emb_dim)
-#     """
-#     logits = functional_call(model, param_dict, x)
-#     return F.mse_loss(logits, target)
-
-# grad_and_loss_one = grad_and_value(loss_one, argnums=1)  # takes the gradient and value of the loss w.r.t. the model parameters
-# per_sample_grads_and_losses = vmap(grad_and_loss_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients and value
-
-def check_for_nans(grads):
-    for i, g in enumerate(grads):
-        if g is not None and torch.isnan(g).any():
-            print(f"NaN detected in gradient {i}")
-
 class ParallelMLPs(nn.Module):
     """
     ParallelMLPs is a wrapper for multiple MLPs that allows for parallel processing of inputs with torch.compile.
@@ -242,15 +222,21 @@ class ParallelMLPs(nn.Module):
                 print(f"B_coeffs stats - Min: {B_coeffs.min().item():.6f}, Max: {B_coeffs.max().item():.6f}, Mean: {B_coeffs.mean().item():.6f}")
                 print(f"D_coeffs stats - Min: {D_coeffs.min().item():.6f}, Max: {D_coeffs.max().item():.6f}, Mean: {D_coeffs.mean().item():.6f}")
 
-                
-            #check_for_nans(list(mem_grads))
-            #check_for_nans(list(surp_grads))
-
             # clip norms
             clip_g = 1.0
             clip_w = 1e4
-            mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
-            surp_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in surp_grads]
+            def soft_sqrt_clip(g: torch.Tensor, eps=1e-8) -> torch.Tensor:
+                if g is None:
+                    return g
+                norm = g.norm()
+                if norm <= clip_g:
+                    return g
+                return g / torch.sqrt(norm + eps)
+            mem_grads = [soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
+            # TODO: figure out how to clip surprises instead?
+            surp_grads = [soft_sqrt_clip(g) if g is not None else g for g in surp_grads]
+            # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
+            # surp_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in surp_grads]
 
             # p_T * M_0 + A_T[idx] * S_0 + gradient_term
             def update_param(name, grad):
