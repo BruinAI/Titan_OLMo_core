@@ -54,7 +54,7 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 """
 
 USE_MAG = True
-USE_SW = False
+USE_SW = True
 MAX_TOKENS = 128
 TRAIN_MODEL = True
 PROFILE_MEM = False
@@ -194,24 +194,191 @@ if not TRAIN_MODEL:
     language is the same as the language of the [max tokens reached]
     """
 else:
+    # Add this to your train_model_test function
+    def check_for_nans(tensors_dict):
+        has_nans = False
+        for name, tensor in tensors_dict.items():
+            if isinstance(tensor, torch.Tensor) and torch.isnan(tensor).any():
+                print(f"NaN values found in {name}")
+                has_nans = True
+        return has_nans
+    
+    def get_gpu_memory_usage():
+        """Return peak GPU memory usage in MB"""
+        if not torch.cuda.is_available():
+            return 0
+        # Reset peak stats
+        torch.cuda.reset_peak_memory_stats()
+        # Run training
+        yield
+        # Get peak memory in MB
+        peak_memory = torch.cuda.max_memory_allocated() / (1024 * 1024)
+        return peak_memory
+    
+    
+    def configure_training_parameters(model, only_train_memory=False):
+        """Configure which parameters to train"""
+        if only_train_memory:
+            # First, freeze all parameters
+            for param in model.parameters():
+                param.requires_grad = False
+                
+            # Then unfreeze only memory parameters
+            memory_param_count = 0
+            memory_module_names = []
+            
+            # First, identify the memory modules to ensure we only unfreeze those specific parameters
+            for name, module in model.named_modules():
+                if hasattr(module, 'memory') and module.memory is not None:
+                    memory_prefix = f"{name}.memory."
+                    memory_module_names.append(memory_prefix)
+            
+            # Debug: Print all memory module prefixes
+            print(f"Memory module prefixes: {memory_module_names}")
+            
+            # Store parameter counts by type for analysis
+            param_type_counts = {}
+            
+            # Now unfreeze only parameters that are specifically part of memory modules
+            for name, param in model.named_parameters():
+                if any(name.startswith(prefix) for prefix in memory_module_names):
+                    param.requires_grad = True
+                    memory_param_count += param.numel()
+                    
+                    # Categorize the parameter for debugging
+                    param_type = name.split('.')[-2] if len(name.split('.')) > 2 else "other"
+                    if param_type not in param_type_counts:
+                        param_type_counts[param_type] = 0
+                    param_type_counts[param_type] += param.numel()
+            
+            # Debug: Print parameter breakdown by type
+            print("\nMemory parameter breakdown by type:")
+            for param_type, count in sorted(param_type_counts.items(), key=lambda x: x[1], reverse=True):
+                print(f"  {param_type}: {count:,} parameters ({count/memory_param_count*100:.2f}%)")
+            
+            print(f"\nTraining only memory parameters: {memory_param_count:,} parameters")
+            
+            # Debug: List top 10 largest parameters
+            print("\nTop 10 largest memory parameters:")
+            param_sizes = [(name, param.numel()) for name, param in model.named_parameters() 
+                        if param.requires_grad]
+            for name, size in sorted(param_sizes, key=lambda x: x[1], reverse=True)[:10]:
+                print(f"  {name}: {size:,} parameters")
+        else:
+            # Train all parameters
+            total_params = 0
+            for param in model.parameters():
+                param.requires_grad = True
+                total_params += param.numel()
+            print(f"Training all parameters: {total_params:,} parameters")
+        
+        # Return count of trainable parameters
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
+    # Add this after configuring training parameters
+    def check_persistent_tokens(model):
+        persistent_token_params = []
+        for name, module in model.named_modules():
+            if hasattr(module, 'memory') and module.memory is not None:
+                if hasattr(module.memory, 'persistent_tokens'):
+                    token_name = f"{name}.memory.persistent_tokens"
+                    param = module.memory.persistent_tokens
+                    is_grad = param.requires_grad
+                    persistent_token_params.append((token_name, param.numel(), is_grad))
+        
+        if persistent_token_params:
+            print("\nPersistent tokens:")
+            for name, size, is_grad in persistent_token_params:
+                status = "trainable" if is_grad else "frozen"
+                print(f"  {name}: {size:,} parameters ({status})")
+        else:
+            print("\nNo persistent tokens found in memory modules")
+
 
     def train_model_test():
-        train_str = "The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat."  # > 
-        input_ids, attention_mask = get_input_ids(train_str)
-
-        # since model hasn't been called yet, mlps haven't been initialized -> not in model.parameters()
-        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-        ce_loss = torch.nn.CrossEntropyLoss()
-        model.train()
-
-        target = torch.nn.functional.one_hot(input_ids[:, 1:], num_classes=model_cfg.vocab_size).float()
-        x = input_ids[:, :-1].clone()
-        for i in tqdm(range(3)):
-            outputs = model(x, attention_mask=attention_mask)
-            loss = ce_loss(outputs, target)
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-            print(f"Epoch {i}: Loss: {loss.item()}")
+        # Run two training configurations
+        for train_mode in ["memory_only", "full_model"]:
+            # Configure parameters to train
+            only_train_memory = (train_mode == "memory_only")
+            num_trainable_params = configure_training_parameters(model, only_train_memory=only_train_memory)
+            # Call after configure_training_parameters
+            check_persistent_tokens(model)
+            
+            print(f"\n{'=' * 50}")
+            print(f"Training mode: {train_mode} ({num_trainable_params:,} trainable parameters)")
+            print(f"{'=' * 50}\n")
+            
+            # Move initialization outside autocast context
+            train_str = "The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat."
+            input_ids, attention_mask = get_input_ids(train_str)
+            
+            # Create optimizer with only trainable parameters
+            optimizer = torch.optim.AdamW(
+                [p for p in model.parameters() if p.requires_grad], 
+                lr=5e-6
+            )
+            ce_loss = torch.nn.CrossEntropyLoss()
+            model.train()
+            
+            target = torch.nn.functional.one_hot(input_ids[:, 1:], num_classes=model_cfg.vocab_size).float()
+            x = input_ids[:, :-1].clone()
+            
+            # Track peak memory
+            torch.cuda.reset_peak_memory_stats()
+            
+            for i in tqdm(range(5)):
+                # Run with autocast but handle loss calculation in float32
+                with torch.amp.autocast('cuda', enabled=is_cuda, dtype=torch.bfloat16):
+                    outputs = model(x, attention_mask=attention_mask)
+                    
+                    # Debug: Check for NaNs in model outputs
+                    if torch.isnan(outputs).any():
+                        print(f"NaN detected in outputs - iteration {i}")
+                        
+                    # Convert to float32 for numerical stability in loss calculation
+                    outputs_f32 = outputs.float()
+                    target_f32 = target.float()
+                    loss = ce_loss(outputs_f32, target_f32)
+                
+                # Skip iteration if loss is NaN
+                if torch.isnan(loss).item():
+                    print(f"NaN loss detected in iteration {i}, skipping")
+                    optimizer.zero_grad()
+                    continue
+                    
+                loss.backward()
+                
+                # Add gradient clipping to prevent explosion
+                torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], max_norm=1.0)
+                
+                # Check for NaN gradients before optimizer step
+                has_nan_grads = False
+                for name, param in model.named_parameters():
+                    if param.grad is not None and torch.isnan(param.grad).any():
+                        print(f"NaN gradient detected in {name}")
+                        has_nan_grads = True
+                        
+                if not has_nan_grads:
+                    optimizer.step()
+                else:
+                    print("Skipping optimizer step due to NaN gradients")
+                    
+                optimizer.zero_grad()
+                print(f"Epoch {i}: Loss: {loss.item()}")
+            
+            # Report peak memory usage
+            peak_memory = torch.cuda.max_memory_allocated() / (1024 * 1024)
+            print(f"\nPeak GPU memory usage ({train_mode}): {peak_memory:.2f} MB")
+            
+            # Reset model and cache before next run
+            if train_mode == "memory_only":
+                # Re-initialize memory modules for next run
+                for name, module in model.named_modules():
+                    if hasattr(module, 'memory') and module.memory is not None:
+                        module.memory.reset_mlps()
+                
+                # Clear CUDA cache
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
     train_model_test()

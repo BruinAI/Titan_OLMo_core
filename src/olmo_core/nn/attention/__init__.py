@@ -368,8 +368,7 @@ class Attention(AttentionBase):
         **kwargs
     ) -> torch.Tensor:
         att: torch.Tensor
-    
-        # Check if we should use PaddlePaddle flash attention
+        
         use_paddle = kwargs.get("use_global_sw", False)
         if use_paddle:
             from .flash_attn_api import dispatch_paddle_flash_attn
