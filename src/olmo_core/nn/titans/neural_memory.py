@@ -7,8 +7,6 @@ from typing import List
 import regex as re
 
 
-
-
 class ParallelMLPs(nn.Module):
     _mlp_index_regex = re.compile(r"\.(\d+)\.")
 
@@ -28,6 +26,29 @@ class ParallelMLPs(nn.Module):
         if idx := ParallelMLPs._mlp_index_regex.search(name):
             return int(idx.group(1))
         raise ValueError(f"Parameter name {name} does not match expected format.")
+    
+    @staticmethod
+    @torch.compile()
+    def soft_sqrt_clip(g: torch.Tensor, eps=1e-8) -> torch.Tensor:
+        if g is None:
+            return g
+        norm = g.norm()
+        if norm <= 1.0:
+            return g
+        return g / torch.sqrt(norm + eps)
+
+    @staticmethod
+    @torch.compile()
+    def scaled_root_excess_norm(g: torch.Tensor, alpha=5, eps=1e-8) -> torch.Tensor:
+        """
+        Soft clipping function such that g is rescale to have a norm of:
+            2 * alpha * (sqrt(1 + ||g|| / (alpha + eps)) - 1)
+        """
+        if g is None:
+            return g
+        norm = g.norm()
+        final_norm = 2 * alpha * (torch.sqrt(1 + norm / (alpha + eps)) - 1)
+        return g * (final_norm / (norm + eps)) if norm > 0 else g
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[0] != len(self.mlps):
@@ -227,20 +248,14 @@ class ParallelMLPs(nn.Module):
                 print(f"D_coeffs stats - Min: {D_coeffs.min().item():.6f}, Max: {D_coeffs.max().item():.6f}, Mean: {D_coeffs.mean().item():.6f}")
 
             # clip norms
-            clip_g = 1.0
-            clip_w = 1e4
-            def soft_sqrt_clip(g: torch.Tensor, eps=1e-8) -> torch.Tensor:
-                if g is None:
-                    return g
-                norm = g.norm()
-                if norm <= clip_g:
-                    return g
-                return g / torch.sqrt(norm + eps)
-            mem_grads = [soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
-            # TODO: figure out how to clip surprises instead?
-            surp_grads = [soft_sqrt_clip(g) if g is not None else g for g in surp_grads]
+            clip_mem_g = 5
+            clip_sur_g = 10
+            clip_w = 1e3
+            
+            # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
             # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
-            # surp_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in surp_grads]
+            mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
+            surp_grads = [self.scaled_root_excess_norm(g, clip_sur_g) if g is not None else g for g in surp_grads]
 
             # p_T * M_0 + A_T[idx] * S_0 + gradient_term
             def update_param(name, grad):
@@ -306,7 +321,8 @@ class NeuralMemory(nn.Module):
     def __init__(self, emb_dim = 16, n_layers = 2, 
                  hidden_dim = 32, nu = 0.001,
                  use_global_sw = False, num_global_tokens = 0,
-                 use_conv=False, audit_grad=False):
+                 use_conv=False, retrieve_layer=True,
+                 audit_grad=False):
         super().__init__()
 
         # Define the layers of the network
@@ -318,30 +334,39 @@ class NeuralMemory(nn.Module):
         self.surprise = {}
         self.mlp_template_weights = self.init_mlp_template_weights()
         self.mlp_reset = True
-        self.audit_grad = audit_grad
-        self.use_conv = use_conv
         self.nu = nu
+        self.use_conv = use_conv
+        self.retrieve_layer = retrieve_layer
+        self.audit_grad = audit_grad
 
         self.K = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to keys
         self.Q = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to queries
         self.V = nn.Linear(emb_dim, emb_dim, bias = False)  # Mapping to values
-        
-        self.use_global_sw = use_global_sw
-        self.num_global_tokens = num_global_tokens
-        
-        if self.use_global_sw and self.num_global_tokens > 0:
-            self.persistent_tokens = nn.Parameter(
-            torch.empty(self.num_global_tokens, self.emb_dim)
-            )
-            torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.1)
-
-        self.silu = nn.SiLU()
-        self.sigmoid = nn.Sigmoid()
+        if self.retrieve_layer:
+            self.retrieve_to_gate = nn.Linear(emb_dim, emb_dim)  # Mapping to retrieve gate
 
         torch.nn.init.normal_(self.K.weight, mean=0.0, std=0.02)
         torch.nn.init.normal_(self.V.weight, mean=0.0, std=0.02)
         torch.nn.init.normal_(self.Q.weight, mean=0.0, std=0.02)
+        if self.retrieve_layer:
+            torch.nn.init.normal_(self.retrieve_to_gate.weight, mean=0.0, std=0.02)
 
+        self.alpha = nn.Linear(emb_dim, 1, bias=True)
+        self.eta = nn.Linear(emb_dim, 1, bias=True)
+        self.theta = nn.Linear(emb_dim, 1, bias=True)
+
+        torch.nn.init.normal_(self.alpha.weight, mean=0.0, std=0.02)
+        torch.nn.init.normal_(self.eta.weight, mean=0.0, std=0.02)
+        torch.nn.init.normal_(self.theta.weight, mean=0.0, std=0.02)
+
+        # Initialize bias terms to -4.5 (sigmoid(-3.5)=0.01)
+        with torch.no_grad():
+            self.alpha.bias.fill_(-3) # alpha needs to be close to 0: beta = 1 - alpha close to 1
+            self.eta.bias.fill_(2) # eta needs to be close to 1 for proper momentum
+            self.theta.bias.fill_(-4.5) # theta needs to be close to 0 for low learning rate
+
+        self.silu = nn.SiLU()
+        self.sigmoid = nn.Sigmoid()
 
         if self.use_conv:
             # Depthwise-separable convolutions
@@ -353,20 +378,14 @@ class NeuralMemory(nn.Module):
             torch.nn.init.normal_(self.conv_k.weight, mean=0.0, std=0.02)
             torch.nn.init.normal_(self.conv_v.weight, mean=0.0, std=0.02)
 
-        self.alpha = nn.Linear(emb_dim, 1, bias=True)
-        self.eta = nn.Linear(emb_dim, 1, bias=True)
-        self.theta = nn.Linear(emb_dim, 1, bias=True)
-
-        torch.nn.init.normal_(self.alpha.weight, mean=0.0, std=0.02)
-        torch.nn.init.normal_(self.eta.weight, mean=0.0, std=0.02)
-        torch.nn.init.normal_(self.theta.weight, mean=0.0, std=0.02)
-
+        self.use_global_sw = use_global_sw
+        self.num_global_tokens = num_global_tokens
         
-        # Initialize bias terms to -4.5 (sigmoid(-3.5)=0.01)
-        with torch.no_grad():
-            self.alpha.bias.fill_(-3) # 1-alpha needs to be close to 1
-            self.eta.bias.fill_(2) # eta needs to be close to 1 for proper momentum
-            self.theta.bias.fill_(-4.5) # theta needs to be close to 0 for low learning rate
+        if self.use_global_sw and self.num_global_tokens > 0:
+            self.persistent_tokens = nn.Parameter(
+            torch.empty(self.num_global_tokens, self.emb_dim)
+            )
+            torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.1)
 
         self.surprise = {}
 
@@ -438,7 +457,12 @@ class NeuralMemory(nn.Module):
             queries = queries.transpose(1, 2)  # B, L, N -> B, N, L
         queries = F.normalize(queries, eps=1e-8) # Normalize after convolution
 
-        return functional_call(self.mlps_processor, self.mlp_states[-1], queries)
+        outputs = functional_call(self.mlps_processor, self.mlp_states[-1], queries)
+        if not self.retrieve_layer:
+            return outputs
+        # transform retrieved memory to sigmoid gate inputs (not needed, but more intuitive imo)
+        outputs = self.retrieve_to_gate(outputs)
+        return outputs
 
     # @torch.compile()
     def update(self, x):
