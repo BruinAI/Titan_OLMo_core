@@ -388,6 +388,7 @@ else:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
+    torch.autograd.set_detect_anomaly(True)
     train_model_test(verbose=PROFILE_MEM)
     subtext = " ".join(train_str.split()[:8])
     print_generated_text(subtext, max_tokens=MAX_TOKENS)
