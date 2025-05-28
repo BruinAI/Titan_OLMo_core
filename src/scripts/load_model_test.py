@@ -2,6 +2,7 @@ import sys
 import os
 from typing import Generator
 from tqdm import tqdm
+from transformers.commands import train
 if "olmo_core" not in sys.path:
     sys.path.append("..")
 if not os.getcwd().endswith("src/scripts"):  # for VS Code debugging
@@ -10,15 +11,10 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"  # to avoid warnings
 
 # Environment variables for Torch Compile -> Torch Inductor -> Torch Dynamo -> Triton and/or LLVM
 # MUST HAVE Triton (if using GPU) and LLVM installed
-if sys.platform == "darwin":  # if macos:
+if sys.platform == "darwin":  # if macOS
     os.environ["PATH"] = "/opt/homebrew/opt/llvm/bin:" + os.environ["PATH"]
     os.environ["LDFLAGS"] = "-L/opt/homebrew/opt/llvm/lib"
-    os.environ["CPPFLAGS"] = "-I/opt/homebrew/opt/llvm/include"  # for MacOS
-# Debugging options for torch.compile
-# os.environ["TORCHINDUCTOR_COMPILE_OPTIONS"] = "-Wl,-rpath,/usr/lib"
-# os.environ["TORCHDYNAMO_VERBOSE"] = "1"
-# os.environ["TORCH_COMPILE_DEBUG"] = "1"
-# os.environ["TORCHINDUCTOR_VERBOSE"] = "1"
+    os.environ["CPPFLAGS"] = "-I/opt/homebrew/opt/llvm/include"
 
 import torch
 from torch.profiler import profile, ProfilerActivity
@@ -169,17 +165,17 @@ def generate(model, text, max_tokens=MAX_TOKENS) -> Generator[torch.types.Number
                 print("[Got EOS token]")
                 break
 
+def print_generated_text(text=sample_text, max_tokens=MAX_TOKENS):
+    print("Generating continuation for:", text)
+    for token in generate(model, text, max_tokens=max_tokens):
+        streamed_token = tokenizer.decode([token], skip_special_tokens=True)
+        print(streamed_token, end="", flush=True)
+    print("[Max Tokens Reached]")
+
 if not TRAIN_MODEL:
-    print(sample_text, end="")
     profiler = [ProfilerActivity.CPU, ProfilerActivity.CUDA] if is_cuda else[ProfilerActivity.CPU]
     with profile(activities=profiler, profile_memory=True, record_shapes=True) as prof:
-        for token in generate(model, sample_text, max_tokens=MAX_TOKENS):
-            streamed_token = tokenizer.decode([token], skip_special_tokens=True)
-            print(streamed_token, end="", flush=True)
-            if token == tokenizer.eos_token_id:
-                print("[Got EOS token]")
-                break
-        print("[Max Tokens Reached]")
+        print_generated_text(sample_text, max_tokens=MAX_TOKENS)
     if PROFILE_MEM:
         key = "self_cuda_memory_usage" if is_cuda else "self_cpu_memory_usage"
         print(prof.key_averages().table(sort_by=key, row_limit=10))
@@ -360,6 +356,7 @@ else:
                 The dog felt in its bones the oppression its kin endured for thousands of years. It wanted to break free \
                 of the shackles, but it could not bring itself to do so. For if it broke free, the world would isntantly become \
                 a much more cruel place. Because taxes."""
+
             input_ids, attention_mask = get_input_ids(train_str)
             print(input_ids.shape)
             
@@ -383,7 +380,8 @@ else:
             x = input_ids[:, :-1].clone()
             
             # Track peak memory
-            torch.cuda.reset_peak_memory_stats()
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
             
             for i in tqdm(range(5)):
                 # Run with autocast but handle loss calculation in float32
@@ -429,9 +427,10 @@ else:
                 optimizer.zero_grad()
                 print(f"Epoch {i}: Loss: {loss.item()}")
             
-            # Report peak memory usage
-            peak_memory = torch.cuda.max_memory_allocated() / (1024 * 1024)
-            print(f"\nPeak GPU memory usage ({train_mode}): {peak_memory:.2f} MB")
+            # Report peak memory usage if cuda
+            if torch.cuda.is_available():
+                peak_memory = torch.cuda.max_memory_allocated() / (1024 * 1024)
+                print(f"\nPeak GPU memory usage ({train_mode}): {peak_memory:.2f} MB")
             
             # Reset model and cache before next run
             if train_mode == "memory_only":
@@ -444,4 +443,9 @@ else:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-    train_model_test(verbose=False, cpu_offload=True)
+
+    torch.autograd.set_detect_anomaly(True)
+    train_model_test(verbose=PROFILE_MEM, cpu_offload=True)
+    subtext = " ".join(train_str.split()[:8])
+    print_generated_text(subtext, max_tokens=MAX_TOKENS)
+

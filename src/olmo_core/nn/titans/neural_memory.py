@@ -40,7 +40,7 @@ class ParallelMLPs(nn.Module):
         }
 
     @staticmethod
-    def get_name_idx( name: str) -> int:
+    def get_name_idx(name: str) -> int:
         if idx := re.search(r"\.(\d+)\.", name):
             return int(idx.group(1))
         raise ValueError(f"Parameter name {name} does not match expected format.")
@@ -53,8 +53,86 @@ class ParallelMLPs(nn.Module):
         outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
         return torch.stack(outputs, dim=0) + x  # residual connection
     
+    # def forward(self, x: torch.Tensor) -> torch.Tensor:
+    #     if x.shape[0] != len(self.mlps):
+    #         raise ValueError(f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}")
+        
+    #     # Debug: Check input for extreme values
+    #     if torch.isnan(x).any():
+    #         raise ValueError("Input x contains NaN")
+    #     if torch.isinf(x).any():
+    #         raise ValueError("Input x contains Inf")
+        
+    #     # Check for extreme values that might cause numerical issues
+    #     x_min, x_max = x.min(), x.max()
+    #     if x_max > 1e10 or x_min < -1e10:
+    #         print(f"WARNING: Input x has extreme values: min={x_min}, max={x_max}")
+        
+    #     outputs = []
+    #     for i in range(x.shape[0]):
+    #         single_input = x[i]
+            
+    #         # Debug single input
+    #         if torch.isnan(single_input).any():
+    #             raise ValueError(f"Input x[{i}] contains NaN")
+    #         if torch.isinf(single_input).any():
+    #             raise ValueError(f"Input x[{i}] contains Inf")
+                
+    #         try:
+    #             single_output = self.mlps[i](single_input)
+                
+    #             # Debug single output
+    #             if torch.isnan(single_output).any():
+    #                 print(f"ERROR: MLP {i} produced NaN output")
+    #                 print(f"  Input stats: min={single_input.min()}, max={single_input.max()}, mean={single_input.mean()}, std={single_input.std()}")
+                    
+    #                 # Debug each layer in the MLP
+    #                 temp_x = single_input
+    #                 for j, layer in enumerate(self.mlps[i]):
+    #                     temp_x = layer(temp_x)
+    #                     if torch.isnan(temp_x).any():
+    #                         print(f"  Layer {j} ({type(layer).__name__}) produced NaN")
+    #                         print(f"    Input to this layer: min={temp_x.min()}, max={temp_x.max()}")
+    #                         break
+    #                     else:
+    #                         print(f"  Layer {j} ({type(layer).__name__}) OK: min={temp_x.min()}, max={temp_x.max()}")
+                    
+    #                 raise ValueError(f"MLP {i} produced NaN output")
+                
+    #             if torch.isinf(single_output).any():
+    #                 raise ValueError(f"MLP {i} produced Inf output")
+                    
+    #             outputs.append(single_output)
+                
+    #         except Exception as e:
+    #             print(f"Error in MLP {i}: {e}")
+    #             print(f"  Input shape: {single_input.shape}")
+    #             print(f"  Input stats: min={single_input.min()}, max={single_input.max()}")
+    #             raise
+        
+    #     stacked_outputs = torch.stack(outputs, dim=0)
+        
+    #     # Debug the residual connection
+    #     if torch.isnan(stacked_outputs).any():
+    #         raise ValueError("Stacked outputs contain NaN before residual")
+        
+    #     final_output = stacked_outputs + x
+        
+    #     if torch.isnan(final_output).any():
+    #         print("ERROR: Final output contains NaN after residual connection")
+    #         print(f"  stacked_outputs stats: min={stacked_outputs.min()}, max={stacked_outputs.max()}")
+    #         print(f"  x stats: min={x.min()}, max={x.max()}")
+    #         raise ValueError("Final output contains NaN after residual connection")
+        
+    #     return final_output
+    
     @torch.compile()
     def calculate_coeffs(self, beta_vecs, eta_vecs, theta_vecs):
+        # ---------------------------------------------------------
+        eps = 1e-7
+        beta_vecs = beta_vecs.clamp(min=eps, max=1.0 - eps)
+        eta_vecs  = eta_vecs.clamp(min=eps, max=1.0 - eps)
+        
         # ---------- prefix / suffix cumulative products ----------
         p_prefix = beta_vecs.cumprod(1)                                 # p_t  = β_0⋯β_t: B, T
         p_suffix = beta_vecs.flip(1).cumprod(1).flip(1)                 # β_t⋯β_{T-1}, B: T
@@ -66,18 +144,18 @@ class ParallelMLPs(nn.Module):
         q_T = q_prefix[:, -1]                                           # final q_T:  B
 
         # ---------- w_k  (shape: T) ----------
-        w = (p_suffix / beta_vecs) * q_prefix                           # β^{T-1-k} · η^{k+1}: B, T
+        w = (p_suffix / beta_vecs + eps) * q_prefix                           # β^{T-1-k} · η^{k+1}: B, T
 
         # ---------- A_T (scalar) ----------
         A_T = w.sum(dim=1)                                              # A_T:  B
 
         # ---------- B_{T,j}  (shape: T) ----------
         partial_sum = w.flip(1).cumsum(dim=1).flip(1)                   # Σ_{k=j}^{T-1} w_k: B, T
-        B_coeffs = theta_vecs * partial_sum / q_prefix                  # −θ · B_{T,j}: B, T
+        B_coeffs = theta_vecs * partial_sum / (q_prefix + eps)         # −θ · B_{T,j}: B, T
 
         # ---------- D_{T,j}  (shape: T) ----------
         D_coeffs = theta_vecs * q_suffix                                # −θ · D_{T,j}: B, T
-        
+
         return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
     # @torch.compile()
@@ -117,6 +195,8 @@ class ParallelMLPs(nn.Module):
             else:
                 outputs = functional_call(self, current_params, keys)
             
+            # assert not torch.isnan(outputs).any(), "Outputs contain NaN values, which is unexpected."
+            # assert not torch.isinf(outputs).any(), "Outputs contain NaN or Inf values, which is unexpected."
             sqerr = (outputs - values).pow(2)  # squared error
             
             input_params = tuple(current_params.values())
@@ -164,6 +244,12 @@ class ParallelMLPs(nn.Module):
             #check_for_nans(list(mem_grads))
             #check_for_nans(list(surp_grads))
 
+            # clip norms
+            clip_g = 1.0
+            clip_w = 1e4
+            mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
+            surp_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in surp_grads]
+
             # p_T * M_0 + A_T[idx] * S_0 + gradient_term
             def update_param(name, grad):
                 if grad is None:
@@ -173,7 +259,7 @@ class ParallelMLPs(nn.Module):
                 surprise = surprises.get(name, torch.zeros_like(old_param))
                 # M_T (param) = p_T·M_0 + A_T·S_0 − Σ_j θ·B_{T,j}·u_j
                 new_param = p_T[idx] * old_param + A_T[idx] * surprise - grad
-                return new_param.detach().requires_grad_(True)
+                return new_param.detach().clamp(-clip_w, clip_w).requires_grad_(True)
 
             # q_T * S_0 - Σ_j θ·D_{T,j}·u_j
             def update_surprise(name, grad):
@@ -183,7 +269,7 @@ class ParallelMLPs(nn.Module):
                 old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))
                 # S_T (surprise) = q_T·S_0 − Σ_j θ·D_{T,j}·u_j
                 new_surprise = q_T[idx] * old_surprise - grad
-                return new_surprise.detach()
+                return new_surprise.detach().clamp(-clip_w, clip_w)
 
             new_params = {
                 name: update_param(name, grad)
@@ -226,7 +312,7 @@ class NeuralMemory(nn.Module):
     """
 
     def __init__(self, emb_dim = 16, n_layers = 2, 
-                 hidden_dim = 32, nu = 0.01,
+                 hidden_dim = 32, nu = 0.001,
                  use_global_sw = False, num_global_tokens = 0,
                  use_conv=False):
         super().__init__()
@@ -302,15 +388,17 @@ class NeuralMemory(nn.Module):
         else:
             layers: List[nn.Module] = [
                 nn.Linear(self.emb_dim, self.hidden_dim),
-                nn.SiLU()
+                nn.LayerNorm(self.hidden_dim),
+                nn.SiLU(),
             ]
             for k in range(self.n_layers - 2):
                 layers += [
                     nn.Linear(self.hidden_dim, self.hidden_dim),
-                    nn.SiLU()
+                    nn.LayerNorm(self.hidden_dim),
+                    nn.SiLU(),
                 ]
             layers.append(nn.Linear(self.hidden_dim, self.emb_dim))
-        layers.append(nn.LayerNorm(self.emb_dim))  # Layer normalization
+        layers.append(nn.LayerNorm(self.emb_dim, eps=1e-4))  # Layer normalization
         return nn.Sequential(*layers)
 
     def get_mlp_params(self):
@@ -355,7 +443,7 @@ class NeuralMemory(nn.Module):
             queries = queries.transpose(1, 2)  # B, N, L -> B, L, N
             queries = self.conv_q(queries)
             queries = queries.transpose(1, 2)  # B, L, N -> B, N, L
-        queries = F.normalize(queries) # Normalize after convolution
+        queries = F.normalize(queries, eps=1e-8) # Normalize after convolution
 
         return functional_call(self.mlps_processor, self.mlp_states[-1], queries)
 
@@ -364,8 +452,7 @@ class NeuralMemory(nn.Module):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
         
-        self.mlp_reset = False            
-            
+        self.mlp_reset = False
         z = x.detach()
            
         # NOT SURE IF THIS SHOULD GO BEFORE OR AFTER THE DETATCH
@@ -397,8 +484,8 @@ class NeuralMemory(nn.Module):
             keys = keys.transpose(1, 2)
             values = values.transpose(1, 2)
         
-        keys = F.normalize(keys)
-        values = F.normalize(values)
+        keys = F.normalize(keys, eps=1e-8)
+        values = F.normalize(values, eps=1e-8)
 
         # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
         beta_vec = 1 - self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
@@ -426,25 +513,59 @@ class NeuralMemory(nn.Module):
                 # Initialize the template parameters (e.g., normal distribution)
                 # This initialization is for the *learnable template*.
                 # Adjust mean and std as needed, or use other init functions.
-                if "weight" in name:
-                    torch.nn.init.normal_(new_param.data, mean=0, std=0.02)
-                elif "bias" in name: # Bias exists but is None (e.g. bias=False in Linear)
-                    torch.nn.init.zeros_(new_param.data) # Or some other default
-                else: # Fallback for other params
-                    raise ValueError(f"Unexpected parameter name: {name}")
+                # if "weight" in name:
+                #     torch.nn.init.normal_(new_param.data, mean=0, std=0.02)
+                # elif "bias" in name: # Bias exists but is None (e.g. bias=False in Linear)
+                #     torch.nn.init.zeros_(new_param.data) # Or some other default
+                # else: # Fallback for other params
+                #     raise ValueError(f"Unexpected parameter name: {name}")
+                
+                module_idx_str = name.split('.')[0]
+                parent_module = None
+                if module_idx_str.isdigit() and int(module_idx_str) < len(reference_mlp):
+                    parent_module = reference_mlp[int(module_idx_str)]
+                
+                param_type = name.split('.')[-1] # "weight" or "bias"
+                if param_type == "weight":
+                    if isinstance(parent_module, nn.LayerNorm):
+                        torch.nn.init.ones_(new_param.data)  # LayerNorm weight (gamma)
+                    elif isinstance(parent_module, nn.Linear):
+                        # Kaiming He initialization for Linear layers
+                        torch.nn.init.kaiming_normal_(new_param.data, mode='fan_in', nonlinearity='relu')
+                        # Alternative: torch.nn.init.normal_(new_param.data, mean=0, std=0.02)
+                    else:
+                        # Fallback for other types of weights if MLP structure changes
+                        torch.nn.init.normal_(new_param.data, mean=0, std=0.02)
+                elif param_type == "bias":
+                    # For both LayerNorm and Linear biases
+                    torch.nn.init.zeros_(new_param.data)
+                else:
+                    # This case should ideally not be hit if all params are standard 'weight' or 'bias'
+                    raise ValueError(f"Unexpected parameter name structure: {name}")
+                
+                
                 # new param with no gradients
                 template_weights[clean_name] = new_param.detach()
         del reference_mlp
         return template_weights
-    
+
     def train_initial_mlp(self):
         mlp_updates = {}
-        for mlp in self.mlps_processor.mlps:  # type: ignore
-            for name, param in mlp.named_parameters():
-                clean_name = name.replace('.', '_')
-                mlp_updates[clean_name] = mlp_updates.get(clean_name, []) + [param.data.clone()]
+        for state in self.mlp_states:
+            for name, param in state.items():
+                if match := re.search(r"\.(\d+)\.", name):
+                    end_idx = match.end()
+                    clean_name = name[end_idx:].replace('.', '_')
+                else:
+                    raise ValueError(f"Parameter name {name} does not match expected format.")
+                if torch.isnan(param).any() or torch.isinf(param).any():
+                    raise ValueError(f"Parameter {name} contains NaN or Inf values.")
+                mlp_updates[clean_name] = mlp_updates.get(clean_name, []) + [param.detach().clone()]
         for name, params in mlp_updates.items():
             assert name in self.mlp_template_weights, f"Parameter {name} not found in template weights, but in MLPs."
             avg_param = torch.mean(torch.stack(params), dim=0) if len(params) > 1 else params[0]
-            old_weight = self.mlp_template_weights[name].data
-            self.mlp_template_weights[name].data = (1 - self.nu) * old_weight + self.nu * avg_param
+            old_weight = self.mlp_template_weights[name].detach().clone()
+            new_weight = (1 - self.nu) * old_weight + self.nu * avg_param
+            if torch.isnan(new_weight).any() or torch.isinf(new_weight).any():
+                raise ValueError(f"Updated weight for {name} contains NaN or Inf values.")
+            self.mlp_template_weights[name] = new_weight
