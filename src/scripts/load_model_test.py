@@ -30,6 +30,8 @@ from olmo_core.nn.attention import SlidingWindowAttentionConfig
 from olmo_core.distributed.checkpoint import load_model_and_optim_state
 from olmo_core.data.tokenizer import TokenizerConfig
 
+import bitsandbytes as bnb
+
 # PREREQ: run the following in the root of the repo, uses repo's built-in HF converter
 """
 python src/examples/huggingface/convert_checkpoint_from_hf.py \
@@ -55,7 +57,7 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 
 USE_MAG = True
 USE_SW = True
-MAX_TOKENS = 128
+MAX_TOKENS = 256
 TRAIN_MODEL = True
 PROFILE_MEM = False
 
@@ -296,13 +298,50 @@ else:
             else:
                 print("\nNo persistent tokens found in memory modules")
 
+    def configure_activation_checkpointing(model, verbose=False):
+        """Enable activation checkpointing on transformer blocks"""
+        if not hasattr(torch, "utils") or not hasattr(torch.utils, "checkpoint"):
+            print("Torch version doesn't support checkpointing")
+            return model
+            
+        # Count how many transformer blocks we're applying checkpointing to
+        checkpoint_count = 0
+        
+        # The actual naming convention in OLMo is different
+        for name, module in model.named_modules():
+            # Target transformer blocks - adjust the pattern to match OLMo's naming convention
+            # Common patterns: "transformer.blocks", "transformer_blocks", etc.
+            if "blocks" in name and not any(x in name for x in ["memory"]):
+                # Create a closure-safe wrapper for the checkpoint function
+                def make_checkpoint_forward(original_forward):
+                    def checkpoint_forward(*args, **kwargs):
+                        return torch.utils.checkpoint.checkpoint(
+                            original_forward, *args, **kwargs, 
+                            use_reentrant=False
+                        )
+                    return checkpoint_forward
+                
+                original_forward = module.forward
+                module.forward = make_checkpoint_forward(original_forward)
+                checkpoint_count += 1
+                
+                if verbose and checkpoint_count <= 5:  # Show first 5 checkpointed modules
+                    print(f"Applied checkpointing to: {name}")
+        
+        print(f"Applied activation checkpointing to {checkpoint_count} transformer blocks")
+        return model
 
-    def train_model_test(verbose=False):
+        
+    def train_model_test(verbose=False, use_checkpoint=False, cpu_offload=False):
         # Run two training configurations
         for train_mode in ["memory_only", "full_model"]:
             # Configure parameters to train
             only_train_memory = (train_mode == "memory_only")
             num_trainable_params = configure_training_parameters(model, only_train_memory=only_train_memory, verbose=verbose)
+            # Apply activation checkpointing if requested
+            if use_checkpoint:
+                configure_activation_checkpointing(model)
+                
             # Call after configure_training_parameters
             check_persistent_tokens(model, verbose=verbose)
             
@@ -314,14 +353,29 @@ else:
                 print(f"Training mode: {train_mode} ({num_trainable_params:,} trainable parameters)")
             
             # Move initialization outside autocast context
-            train_str = "The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat."
+            train_str = """The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat. \
+                The dog got very upset with the cat. The cat threw a buncha milk at the dog. Not a pretty sight. \
+                When life gave the cat lemons it made lemonage. Oh how the cat wanted to eat hot dogs but the dog would not have it. \
+                The very next day the cat tried to make pork sliders, but the dog did not want pork. It wanted freedom. \
+                The dog felt in its bones the oppression its kin endured for thousands of years. It wanted to break free \
+                of the shackles, but it could not bring itself to do so. For if it broke free, the world would isntantly become \
+                a much more cruel place. Because taxes."""
             input_ids, attention_mask = get_input_ids(train_str)
+            print(input_ids.shape)
             
             # Create optimizer with only trainable parameters
-            optimizer = torch.optim.AdamW(
-                [p for p in model.parameters() if p.requires_grad], 
-                lr=5e-6
-            )
+            if cpu_offload:
+                optimizer = bnb.optim.AdamW8bit(
+                    [p for p in model.parameters() if p.requires_grad],
+                    lr=5e-6,
+                    optim_bits=8,      # Use 8-bit optimization  
+                    is_paged=True      # Enable CPU paging of optimizer states
+                ) 
+            else:
+                optimizer = torch.optim.AdamW(
+                    [p for p in model.parameters() if p.requires_grad], 
+                    lr=5e-6
+                )
             ce_loss = torch.nn.CrossEntropyLoss()
             model.train()
             
@@ -390,4 +444,4 @@ else:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-    train_model_test(verbose=False)
+    train_model_test(verbose=False, cpu_offload=True)
