@@ -215,8 +215,7 @@ else:
         peak_memory = torch.cuda.max_memory_allocated() / (1024 * 1024)
         return peak_memory
     
-    
-    def configure_training_parameters(model, only_train_memory=False):
+    def configure_training_parameters(model, only_train_memory=False, verbose=False):
         """Configure which parameters to train"""
         if only_train_memory:
             # First, freeze all parameters
@@ -234,7 +233,8 @@ else:
                     memory_module_names.append(memory_prefix)
             
             # Debug: Print all memory module prefixes
-            print(f"Memory module prefixes: {memory_module_names}")
+            if verbose:
+                print(f"Memory module prefixes: {memory_module_names}")
             
             # Store parameter counts by type for analysis
             param_type_counts = {}
@@ -252,31 +252,32 @@ else:
                     param_type_counts[param_type] += param.numel()
             
             # Debug: Print parameter breakdown by type
-            print("\nMemory parameter breakdown by type:")
-            for param_type, count in sorted(param_type_counts.items(), key=lambda x: x[1], reverse=True):
-                print(f"  {param_type}: {count:,} parameters ({count/memory_param_count*100:.2f}%)")
-            
-            print(f"\nTraining only memory parameters: {memory_param_count:,} parameters")
-            
-            # Debug: List top 10 largest parameters
-            print("\nTop 10 largest memory parameters:")
-            param_sizes = [(name, param.numel()) for name, param in model.named_parameters() 
-                        if param.requires_grad]
-            for name, size in sorted(param_sizes, key=lambda x: x[1], reverse=True)[:10]:
-                print(f"  {name}: {size:,} parameters")
+            if verbose:
+                print("\nMemory parameter breakdown by type:")
+                for param_type, count in sorted(param_type_counts.items(), key=lambda x: x[1], reverse=True):
+                    print(f"  {param_type}: {count:,} parameters ({count/memory_param_count*100:.2f}%)")
+                
+                print(f"\nTraining only memory parameters: {memory_param_count:,} parameters")
+                
+                # Debug: List top 10 largest parameters
+                print("\nTop 10 largest memory parameters:")
+                param_sizes = [(name, param.numel()) for name, param in model.named_parameters() 
+                            if param.requires_grad]
+                for name, size in sorted(param_sizes, key=lambda x: x[1], reverse=True)[:10]:
+                    print(f"  {name}: {size:,} parameters")
         else:
             # Train all parameters
             total_params = 0
             for param in model.parameters():
                 param.requires_grad = True
                 total_params += param.numel()
-            print(f"Training all parameters: {total_params:,} parameters")
+            if verbose:
+                print(f"Training all parameters: {total_params:,} parameters")
         
         # Return count of trainable parameters
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
-    
-    # Add this after configuring training parameters
-    def check_persistent_tokens(model):
+
+    def check_persistent_tokens(model, verbose=False):
         persistent_token_params = []
         for name, module in model.named_modules():
             if hasattr(module, 'memory') and module.memory is not None:
@@ -286,27 +287,31 @@ else:
                     is_grad = param.requires_grad
                     persistent_token_params.append((token_name, param.numel(), is_grad))
         
-        if persistent_token_params:
-            print("\nPersistent tokens:")
-            for name, size, is_grad in persistent_token_params:
-                status = "trainable" if is_grad else "frozen"
-                print(f"  {name}: {size:,} parameters ({status})")
-        else:
-            print("\nNo persistent tokens found in memory modules")
+        if verbose:
+            if persistent_token_params:
+                print("\nPersistent tokens:")
+                for name, size, is_grad in persistent_token_params:
+                    status = "trainable" if is_grad else "frozen"
+                    print(f"  {name}: {size:,} parameters ({status})")
+            else:
+                print("\nNo persistent tokens found in memory modules")
 
 
-    def train_model_test():
+    def train_model_test(verbose=False):
         # Run two training configurations
         for train_mode in ["memory_only", "full_model"]:
             # Configure parameters to train
             only_train_memory = (train_mode == "memory_only")
-            num_trainable_params = configure_training_parameters(model, only_train_memory=only_train_memory)
+            num_trainable_params = configure_training_parameters(model, only_train_memory=only_train_memory, verbose=verbose)
             # Call after configure_training_parameters
-            check_persistent_tokens(model)
+            check_persistent_tokens(model, verbose=verbose)
             
-            print(f"\n{'=' * 50}")
-            print(f"Training mode: {train_mode} ({num_trainable_params:,} trainable parameters)")
-            print(f"{'=' * 50}\n")
+            if verbose:
+                print(f"\n{'=' * 50}")
+                print(f"Training mode: {train_mode} ({num_trainable_params:,} trainable parameters)")
+                print(f"{'=' * 50}\n")
+            else:
+                print(f"Training mode: {train_mode} ({num_trainable_params:,} trainable parameters)")
             
             # Move initialization outside autocast context
             train_str = "The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat."
@@ -355,7 +360,11 @@ else:
                 has_nan_grads = False
                 for name, param in model.named_parameters():
                     if param.grad is not None and torch.isnan(param.grad).any():
-                        print(f"NaN gradient detected in {name}")
+                        if verbose:
+                            print(f"NaN gradient detected in {name}")
+                        else:
+                            print("NaN gradient detected")
+                            break
                         has_nan_grads = True
                         
                 if not has_nan_grads:
@@ -381,4 +390,4 @@ else:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-    train_model_test()
+    train_model_test(verbose=False)
