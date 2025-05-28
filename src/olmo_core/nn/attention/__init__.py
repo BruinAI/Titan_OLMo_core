@@ -118,6 +118,7 @@ class AttentionConfig(Config):
     sliding_window: Optional[SlidingWindowAttentionConfig] = None
     num_global_tokens: int = 0
     use_global_sw: bool = False
+    memory_config: Optional["MemoryConfig"] = None
 
     def num_params(self, d_model: int) -> int:
         """
@@ -167,6 +168,7 @@ class AttentionConfig(Config):
         n_layers: int,
         init_device: str = "cpu",
         cache: Optional[BufferCache] = None,
+        memory_config: Optional["MemoryConfig"] = None,
     ) -> "AttentionBase":
         """
         Build the corresponding attention module.
@@ -184,6 +186,10 @@ class AttentionConfig(Config):
             layer_idx, n_layers
         ):
             kwargs["window_size"] = sliding_window_config.window_size
+            
+         # Add memory config window size for global sliding window
+        if self.use_global_sw and memory_config is not None:
+            kwargs["window_size"] = memory_config.window_size
 
         kwargs.update(
             dtype=kwargs.pop("dtype").as_pt(),
@@ -281,6 +287,8 @@ class Attention(AttentionBase):
         dtype: torch.dtype = torch.float32,
         init_device: str = "cpu",
         cache: Optional[BufferCache] = None,
+        memory_config: Optional["MemoryConfig"] = None,
+        
     ):
         super().__init__()
 
@@ -332,6 +340,9 @@ class Attention(AttentionBase):
             self.window_size = (window_size, 0)
         else:
             self.window_size = (-1, -1)
+            
+        if self.use_global_sw:
+            self.window_size = (memory_config.window_size if memory_config is not None else 16, 0)
 
         self._cp_pg: Optional[dist.ProcessGroup] = None
         self._cp_enabled = False

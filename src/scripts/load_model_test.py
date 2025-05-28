@@ -54,7 +54,7 @@ Question: should kwargs for Neural Memory go through TransformerConfigBlockConfi
 """
 
 USE_MAG = True
-USE_SW = True
+USE_SW = False
 MAX_TOKENS = 128
 TRAIN_MODEL = True
 PROFILE_MEM = False

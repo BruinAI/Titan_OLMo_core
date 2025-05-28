@@ -999,6 +999,7 @@ class TransformerConfig(Config):
                                         dtype=dtype,
                                         use_global_sw=use_global_sw,
                                         num_global_tokens=num_global_tokens,
+                                        memory_config=block_config.memory_config,
                                         **kwargs,
                                     )
                 if block_config.feed_forward is None:
