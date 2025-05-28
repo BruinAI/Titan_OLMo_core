@@ -57,6 +57,14 @@ MAX_TOKENS = 256
 TRAIN_MODEL = True
 PROFILE_MEM = False
 
+train_str = """The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat. \
+                The dog got very upset with the cat. The cat threw a buncha milk at the dog. Not a pretty sight. \
+                When life gave the cat lemons it made lemonage. Oh how the cat wanted to eat hot dogs but the dog would not have it. \
+                The very next day the cat tried to make pork sliders, but the dog did not want pork. It wanted freedom. \
+                The dog felt in its bones the oppression its kin endured for thousands of years. It wanted to break free \
+                of the shackles, but it could not bring itself to do so. For if it broke free, the world would isntantly become \
+                a much more cruel place. Because taxes."""
+
 # Layers that should use memory (e.g., only layers 0, 5, 10)
 MEMORY_LAYERS = [3, 7, 11, 15]  # every 4th layer
 
@@ -328,7 +336,7 @@ else:
         return model
 
         
-    def train_model_test(verbose=False, use_checkpoint=False, cpu_offload=False):
+    def train_model_test(verbose=False, use_checkpoint=False, cpu_offload=False, train_str=train_str):
         # Run two training configurations
         for train_mode in ["memory_only", "full_model"]:
             # Configure parameters to train
@@ -349,14 +357,6 @@ else:
                 print(f"Training mode: {train_mode} ({num_trainable_params:,} trainable parameters)")
             
             # Move initialization outside autocast context
-            train_str = """The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat. \
-                The dog got very upset with the cat. The cat threw a buncha milk at the dog. Not a pretty sight. \
-                When life gave the cat lemons it made lemonage. Oh how the cat wanted to eat hot dogs but the dog would not have it. \
-                The very next day the cat tried to make pork sliders, but the dog did not want pork. It wanted freedom. \
-                The dog felt in its bones the oppression its kin endured for thousands of years. It wanted to break free \
-                of the shackles, but it could not bring itself to do so. For if it broke free, the world would isntantly become \
-                a much more cruel place. Because taxes."""
-
             input_ids, attention_mask = get_input_ids(train_str)
             print(input_ids.shape)
             
@@ -445,7 +445,7 @@ else:
 
 
     torch.autograd.set_detect_anomaly(True)
-    train_model_test(verbose=PROFILE_MEM, cpu_offload=True)
+    train_model_test(verbose=PROFILE_MEM, cpu_offload=True, train_str=train_str)
     subtext = " ".join(train_str.split()[:8])
     print_generated_text(subtext, max_tokens=MAX_TOKENS)
 

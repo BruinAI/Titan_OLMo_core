@@ -261,11 +261,12 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         
         # If the cache is unitialized yet, that means the entire sequence's memory output needs to be cached
         if self.gate_cache is None:
-            self.gate_cache = self.memory.retrieve(x)
+            self.gate_cache = self.memory.retrieve(x).clone()
         # If the cache is already initialized, that means we only need to get the latest memory update
         else:
-            last_gate = self.memory.retrieve(last_x)
-            self.gate_cache = torch.cat([self.gate_cache, last_gate], dim=1)
+            last_gate = self.memory.retrieve(last_x).clone()
+            safe_cache = self.gate_cache.clone()
+            self.gate_cache = torch.cat([safe_cache, last_gate], dim=1)
                     # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
         if self.use_global_sw:
             repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
