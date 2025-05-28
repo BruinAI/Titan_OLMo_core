@@ -22,6 +22,11 @@ import regex as re
 # grad_and_loss_one = grad_and_value(loss_one, argnums=1)  # takes the gradient and value of the loss w.r.t. the model parameters
 # per_sample_grads_and_losses = vmap(grad_and_loss_one, in_dims=(None, None, 1, 1))  # creates a function to get per sample gradients and value
 
+def check_for_nans(grads):
+    for i, g in enumerate(grads):
+        if g is not None and torch.isnan(g).any():
+            print(f"NaN detected in gradient {i}")
+
 class ParallelMLPs(nn.Module):
     """
     ParallelMLPs is a wrapper for multiple MLPs that allows for parallel processing of inputs with torch.compile.
@@ -195,12 +200,49 @@ class ParallelMLPs(nn.Module):
             sqerr = (outputs - values).pow(2)  # squared error
             
             input_params = tuple(current_params.values())
-            mem_grads = torch.autograd.grad(  # gradient descent for memory update
-                outputs=sqerr, inputs=input_params, grad_outputs=B_coeffs.expand_as(sqerr), allow_unused=True, retain_graph=True
+            mem_grads = torch.autograd.grad(
+                outputs=sqerr, inputs=input_params, grad_outputs=B_coeffs.expand_as(sqerr), 
+                allow_unused=True, retain_graph=True
             )
-            surp_grads = torch.autograd.grad(  # gradient descent for surprise update
-                outputs=sqerr, inputs=input_params, grad_outputs=D_coeffs.expand_as(sqerr), allow_unused=True
+            
+            # Log L2 norm of mem_grads
+            mem_grad_norms = []
+            for i, grad in enumerate(mem_grads):
+                if grad is not None:
+                    norm = grad.norm().item()
+                    mem_grad_norms.append(norm)
+                    if torch.isnan(grad).any():
+                        print(f"NaN detected in mem_grad[{i}] with norm {norm}")
+                    elif norm > 1000:
+                        print(f"Large gradient detected in mem_grad[{i}] with norm {norm}")
+            
+            print(f"Memory gradient norms: {mem_grad_norms}")
+            
+            surp_grads = torch.autograd.grad(
+                outputs=sqerr, inputs=input_params, grad_outputs=D_coeffs.expand_as(sqerr), 
+                allow_unused=True
             )
+            
+            # Log L2 norm of surp_grads
+            surp_grad_norms = []
+            for i, grad in enumerate(surp_grads):
+                if grad is not None:
+                    norm = grad.norm().item()
+                    surp_grad_norms.append(norm)
+                    if torch.isnan(grad).any():
+                        print(f"NaN detected in surp_grad[{i}] with norm {norm}")
+                    elif norm > 1000:
+                        print(f"Large gradient detected in surp_grad[{i}] with norm {norm}")
+            
+            print(f"Surprise gradient norms: {surp_grad_norms}")
+            
+            # Log B_coeffs and D_coeffs stats
+            print(f"B_coeffs stats - Min: {B_coeffs.min().item():.6f}, Max: {B_coeffs.max().item():.6f}, Mean: {B_coeffs.mean().item():.6f}")
+            print(f"D_coeffs stats - Min: {D_coeffs.min().item():.6f}, Max: {D_coeffs.max().item():.6f}, Mean: {D_coeffs.mean().item():.6f}")
+
+            
+            #check_for_nans(list(mem_grads))
+            #check_for_nans(list(surp_grads))
 
             # clip norms
             clip_g = 1.0
@@ -298,14 +340,15 @@ class NeuralMemory(nn.Module):
             self.persistent_tokens = nn.Parameter(
             torch.empty(self.num_global_tokens, self.emb_dim)
             )
-            torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.2)
+            torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.1)
 
         self.silu = nn.SiLU()
         self.sigmoid = nn.Sigmoid()
 
-        torch.nn.init.xavier_uniform_(self.K.weight)
-        torch.nn.init.xavier_uniform_(self.V.weight)
-        torch.nn.init.xavier_uniform_(self.Q.weight)
+        torch.nn.init.normal_(self.K.weight, mean=0.0, std=0.02)
+        torch.nn.init.normal_(self.V.weight, mean=0.0, std=0.02)
+        torch.nn.init.normal_(self.Q.weight, mean=0.0, std=0.02)
+
 
         if self.use_conv:
             # Depthwise-separable convolutions
@@ -313,17 +356,24 @@ class NeuralMemory(nn.Module):
             self.conv_k = nn.Conv1d(emb_dim, emb_dim, kernel_size=3, padding='same', groups=emb_dim, bias=False)
             self.conv_v = nn.Conv1d(emb_dim, emb_dim, kernel_size=3, padding='same', groups=emb_dim, bias=False)
 
-            torch.nn.init.xavier_uniform_(self.conv_q.weight)
-            torch.nn.init.xavier_uniform_(self.conv_k.weight)
-            torch.nn.init.xavier_uniform_(self.conv_v.weight)
+            torch.nn.init.normal_(self.conv_q.weight, mean=0.0, std=0.02)
+            torch.nn.init.normal_(self.conv_k.weight, mean=0.0, std=0.02)
+            torch.nn.init.normal_(self.conv_v.weight, mean=0.0, std=0.02)
 
         self.alpha = nn.Linear(emb_dim, 1, bias=True)
         self.eta = nn.Linear(emb_dim, 1, bias=True)
         self.theta = nn.Linear(emb_dim, 1, bias=True)
 
-        torch.nn.init.xavier_uniform_(self.alpha.weight)
-        torch.nn.init.xavier_uniform_(self.eta.weight)
-        torch.nn.init.xavier_uniform_(self.theta.weight)
+        torch.nn.init.normal_(self.alpha.weight, mean=0.0, std=0.02)
+        torch.nn.init.normal_(self.eta.weight, mean=0.0, std=0.02)
+        torch.nn.init.normal_(self.theta.weight, mean=0.0, std=0.02)
+
+        
+        # Initialize bias terms to -4.5 (sigmoid(-3.5)=0.01)
+        with torch.no_grad():
+            self.alpha.bias.fill_(-3) # 1-alpha needs to be close to 1
+            self.eta.bias.fill_(2) # eta needs to be close to 1 for proper momentum
+            self.theta.bias.fill_(-4.5) # theta needs to be close to 0 for low learning rate
 
         self.surprise = {}
 
