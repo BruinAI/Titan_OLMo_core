@@ -7,7 +7,11 @@ from typing import List
 import regex as re
 
 
+
+
 class ParallelMLPs(nn.Module):
+    _mlp_index_regex = re.compile(r"\.(\d+)\.")
+
     """
     ParallelMLPs is a wrapper for multiple MLPs that allows for parallel processing of inputs with torch.compile.
     """
@@ -21,7 +25,7 @@ class ParallelMLPs(nn.Module):
 
     @staticmethod
     def get_name_idx(name: str) -> int:
-        if idx := re.search(r"\.(\d+)\.", name):
+        if idx := ParallelMLPs._mlp_index_regex.search(name):
             return int(idx.group(1))
         raise ValueError(f"Parameter name {name} does not match expected format.")
 
@@ -538,23 +542,42 @@ class NeuralMemory(nn.Module):
         del reference_mlp
         return template_weights
 
+    @torch.compile()
     def train_initial_mlp(self):
-        mlp_updates = {}
-        for state in self.mlp_states:
-            for name, param in state.items():
-                if match := re.search(r"\.(\d+)\.", name):
-                    end_idx = match.end()
-                    clean_name = name[end_idx:].replace('.', '_')
-                else:
-                    raise ValueError(f"Parameter name {name} does not match expected format.")
-                if torch.isnan(param).any() or torch.isinf(param).any():
-                    raise ValueError(f"Parameter {name} contains NaN or Inf values.")
-                mlp_updates[clean_name] = mlp_updates.get(clean_name, []) + [param.detach().clone()]
-        for name, params in mlp_updates.items():
-            assert name in self.mlp_template_weights, f"Parameter {name} not found in template weights, but in MLPs."
-            avg_param = torch.mean(torch.stack(params), dim=0) if len(params) > 1 else params[0]
-            old_weight = self.mlp_template_weights[name].detach().clone()
-            new_weight = (1 - self.nu) * old_weight + self.nu * avg_param
-            if torch.isnan(new_weight).any() or torch.isinf(new_weight).any():
-                raise ValueError(f"Updated weight for {name} contains NaN or Inf values.")
-            self.mlp_template_weights[name] = new_weight
+        """
+        Aggregate parameters from every stored MLP state and update the
+        shared template weights via an exponential moving-average.
+        """
+        num_states = len(self.mlp_states)
+        if num_states == 0:
+            return
+
+        mlp_sums: dict[str, torch.Tensor] = {}
+        with torch.no_grad():
+            for state in self.mlp_states:
+                for name, param in state.items():
+                    match = ParallelMLPs._mlp_index_regex.search(name)
+                    if match is None:
+                        raise ValueError(f"Parameter name {name} does not match expected format.")
+                    clean_name = name[match.end():].replace('.', '_')
+
+                    if not torch.isfinite(param).all():
+                        raise ValueError(f"Parameter {name} contains NaN or Inf values.")
+
+                    if clean_name not in mlp_sums:
+                        mlp_sums[clean_name] = param.detach().clone()  # initializing with clone for running sum
+                    else:
+                        mlp_sums[clean_name].add_(param.detach())  # accumulate in‑place
+
+            for clean_name, summed_param in mlp_sums.items():
+                if clean_name not in self.mlp_template_weights:
+                    raise AssertionError(f"Parameter {clean_name} not found in template weights.")
+
+                avg_param = summed_param / num_states
+                template_weight = self.mlp_template_weights[clean_name]
+
+                new_weight = (1.0 - self.nu) * template_weight + self.nu * avg_param
+                if not torch.isfinite(new_weight).all():
+                    raise ValueError(f"Updated weight for {clean_name} contains NaN or Inf values.")
+
+                template_weight.data.copy_(new_weight)  # copy into Parameter to preserve state‑dict link

@@ -1,7 +1,9 @@
 import sys
 import os
-from typing import Generator
 from tqdm import tqdm
+from pathlib import Path
+from typing import Generator
+
 if "olmo_core" not in sys.path:
     sys.path.append("..")
 if not os.getcwd().endswith("src/scripts"):  # for VS Code debugging
@@ -17,15 +19,15 @@ if sys.platform == "darwin":  # if macOS
 
 import torch
 from torch.profiler import profile, ProfilerActivity
-from pathlib import Path
-from olmo_core.distributed.checkpoint import unshard_checkpoint
 from transformers import AutoTokenizer
+import bitsandbytes as bnb
+
+from olmo_core.distributed.checkpoint import unshard_checkpoint
 from olmo_core.nn.transformer.config import TransformerConfig, TransformerBlockType, MemoryConfig, TransformerBlockConfig, TransformerType
 from olmo_core.nn.attention import SlidingWindowAttentionConfig
 from olmo_core.distributed.checkpoint import load_model_and_optim_state
 from olmo_core.data.tokenizer import TokenizerConfig
 
-import bitsandbytes as bnb
 
 # PREREQ: run the following in the root of the repo, uses repo's built-in HF converter
 """
@@ -55,7 +57,7 @@ USE_SW = True
 MAX_TOKENS = 256
 TRAIN_MODEL = True
 PROFILE_MEM = False
-CPU_OFFLOAD = False
+CPU_OFFLOAD = True
 
 train_str = """The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat. \
                 The dog got very upset with the cat. The cat threw a bunch of milk at the dog. Not a pretty sight. \
@@ -68,9 +70,11 @@ train_str = """The quick brown fox jumps over the lazy dog. The cat sat on the m
 # Layers that should use memory (e.g., only layers 0, 5, 10)
 MEMORY_LAYERS = [3, 7, 11, 15]  # every 4th layer
 
-if sys.platform == "darwin":  # if macos, remove this when flash attn is deprecated
+if sys.platform.startswith("darwin"):  # if macos, remove this when flash attn is deprecated
     USE_SW = False
-    print("Sliding window attention not supported on macOS. Disabling...")
+    print("Sliding window attention is not supported on macOS. Disabling...")
+    CPU_OFFLOAD = False
+    print("CPU offloading with Bits and Biases' 8bit Optimizer is not supported on macOS. Disabling...")
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}
