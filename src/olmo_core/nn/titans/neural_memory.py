@@ -20,7 +20,7 @@ class ParallelMLPs(nn.Module):
         self.name_to_batch_idx = {  # the index of the MLP the param is from which = its batch index
             name: self.get_name_idx(name) for name, _ in self.named_parameters()
         }
-        self.memory_l2_weight = memory_l2_weight
+        self.l2_factor = 1.0 - 2 * memory_l2_weight  # factor to apply to the memory weights
 
     @staticmethod
     def get_name_idx(name: str) -> int:
@@ -266,7 +266,7 @@ class ParallelMLPs(nn.Module):
                 orig_param = current_params[name]  # (*param_shape)
                 surprise = surprises.get(name, torch.zeros_like(orig_param))
                 # M_T (param) = p_T·M_0 + A_T·S_0 − Σ_j θ·B_{T,j}·u_j
-                orig_weight_coeff = p_T[idx] * (1 - 2 * self.memory_l2_weight)
+                orig_weight_coeff = p_T[idx] * self.l2_factor
                 new_param = orig_weight_coeff * orig_param + A_T[idx] * surprise - grad
                 return new_param.detach().clamp(-clip_w, clip_w).requires_grad_(True)
 
@@ -321,7 +321,7 @@ class NeuralMemory(nn.Module):
     """
 
     def __init__(self, emb_dim = 16, n_layers = 2, 
-                 hidden_dim = 32, nu = 0.001, l2_memory_weight = 0.05,
+                 hidden_dim = 32, nu = 0.001, l2_memory_weight = 0.00,
                  use_global_sw = False, num_global_tokens = 0,
                  use_conv=False, retrieve_layer=True,
                  audit_grad=False):
