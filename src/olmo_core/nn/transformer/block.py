@@ -244,46 +244,153 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             return self.inference_forward(x, loss_div_factor=loss_div_factor, **kwargs)
 
 
-    def inference_forward(self, x: torch.Tensor, *, loss_div_factor: Optional[Union[torch.Tensor, float]] = None, **kwargs) -> torch.Tensor:
+    def inference_forward(self, x: torch.Tensor, *, loss_div_factor: Optional[Union[torch.Tensor, float]] = None, nan_audit: bool = False, **kwargs) -> torch.Tensor:
         del loss_div_factor
+        
+        if nan_audit:
+            print(f"[NAN AUDIT] Input x shape: {x.shape}, has NaN: {torch.isnan(x).any().item()}")
+            if torch.isnan(x).any():
+                print(f"[NAN AUDIT] NaN count in input: {torch.isnan(x).sum().item()}")
+        
         if self.memory.mlps_processor is None:
             self.memory.init_mlp(x.shape[0])
+            if nan_audit:
+                print(f"[NAN AUDIT] Initialized MLP processor")
         
         # mlp_reset is set to False internally during memory.update
         if self.memory.mlp_reset:
+            if nan_audit:
+                print(f"[NAN AUDIT] Processing {1 + ((x.shape[1] - 1) // self.chunk_size)} chunks")
+                
             for i in range(1 + ((x.shape[1] - 1) // self.chunk_size)):
                 start = i * self.chunk_size
                 end = min(start + self.chunk_size, x.shape[1])
                 chunk_x = x[:, start:end, :]
-                _loss = self.memory.update(chunk_x)
+                
+                if nan_audit:
+                    print(f"[NAN AUDIT] Chunk {i} shape: {chunk_x.shape}, has NaN: {torch.isnan(chunk_x).any().item()}")
+                
+                try:
+                    _loss = self.memory.update(chunk_x)
+                    if nan_audit and torch.isnan(_loss):
+                        print(f"[NAN AUDIT] NaN in memory update loss for chunk {i}")
+                except Exception as e:
+                    if nan_audit:
+                        print(f"[NAN AUDIT] Exception in memory update for chunk {i}: {str(e)}")
+                    raise
+        
         last_x = x[:, -1, :].unsqueeze(1)
-        _loss = self.memory.update(last_x)
+        if nan_audit:
+            print(f"[NAN AUDIT] Last token shape: {last_x.shape}, has NaN: {torch.isnan(last_x).any().item()}")
+        
+        try:
+            with torch.no_grad():  # Prevent backprop during inference
+                _loss = self.memory.update(last_x)
+            if nan_audit and torch.isnan(_loss):
+                print(f"[NAN AUDIT] NaN in memory update loss for last token")
+        except Exception as e:
+            if nan_audit:
+                print(f"[NAN AUDIT] Exception in memory update for last token: {str(e)}")
+            raise
         
         # If the cache is unitialized yet, that means the entire sequence's memory output needs to be cached
         if self.gate_cache is None:
-            self.gate_cache = self.memory.retrieve(x).clone()
+            try:
+                self.gate_cache = self.memory.retrieve(x).clone()
+                if nan_audit:
+                    print(f"[NAN AUDIT] Gate cache initialized, shape: {self.gate_cache.shape}, has NaN: {torch.isnan(self.gate_cache).any().item()}")
+                    if torch.isnan(self.gate_cache).any():
+                        print(f"[NAN AUDIT] NaN count in gate cache: {torch.isnan(self.gate_cache).sum().item()}")
+                        print(f"[NAN AUDIT] Gate cache stats - min: {self.gate_cache.min().item()}, max: {self.gate_cache.max().item()}, mean: {self.gate_cache.mean().item()}")
+            except Exception as e:
+                if nan_audit:
+                    print(f"[NAN AUDIT] Exception in memory retrieve for full sequence: {str(e)}")
+                raise
         # If the cache is already initialized, that means we only need to get the latest memory update
         else:
-            last_gate = self.memory.retrieve(last_x).clone()
-            safe_cache = self.gate_cache.clone()
-            self.gate_cache = torch.cat([safe_cache, last_gate], dim=1)
-                    # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
+            try:
+                last_gate = self.memory.retrieve(last_x).clone()
+                if nan_audit:
+                    print(f"[NAN AUDIT] Last gate shape: {last_gate.shape}, has NaN: {torch.isnan(last_gate).any().item()}")
+                    
+                safe_cache = self.gate_cache.clone()
+                self.gate_cache = torch.cat([safe_cache, last_gate], dim=1)
+                if nan_audit:
+                    print(f"[NAN AUDIT] Updated gate cache, shape: {self.gate_cache.shape}, has NaN: {torch.isnan(self.gate_cache).any().item()}")
+            except Exception as e:
+                if nan_audit:
+                    print(f"[NAN AUDIT] Exception in memory retrieve for last token: {str(e)}")
+                raise
+                
         if self.use_global_sw:
+            if nan_audit:
+                print(f"[NAN AUDIT] Using global sliding window")
+                
             repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
+            if nan_audit:
+                print(f"[NAN AUDIT] Persistent tokens shape: {repeated_persistent_tokens.shape}, has NaN: {torch.isnan(repeated_persistent_tokens).any().item()}")
             
             # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
             repeated_persistent_tokens = repeated_persistent_tokens.expand(x.shape[0], -1, -1)
             
             x_with_persistent = torch.cat([repeated_persistent_tokens, x], dim=1) # Add persistent tokens to the sliding window attention  
-                                
-            attn = self.attention(x_with_persistent, **kwargs)[:, self.num_global_tokens:, :] # Remove persistent tokens from attention output
+            if nan_audit:
+                print(f"[NAN AUDIT] Input with persistent tokens shape: {x_with_persistent.shape}, has NaN: {torch.isnan(x_with_persistent).any().item()}")
+                
+            try:
+                attn = self.attention(x_with_persistent, **kwargs)[:, self.num_global_tokens:, :] # Remove persistent tokens from attention output
+                if nan_audit:
+                    print(f"[NAN AUDIT] Attention output shape: {attn.shape}, has NaN: {torch.isnan(attn).any().item()}")
+                    if torch.isnan(attn).any():
+                        print(f"[NAN AUDIT] NaN count in attention output: {torch.isnan(attn).sum().item()}")
+                        print(f"[NAN AUDIT] Attention stats - min: {attn.min().item()}, max: {attn.max().item()}, mean: {attn.mean().item()}")
+            except Exception as e:
+                if nan_audit:
+                    print(f"[NAN AUDIT] Exception in attention: {str(e)}")
+                raise
         else:
-            attn = self.attention(x, **kwargs)
-            
-        attn_with_mem = nn.Sigmoid()(self.gate_cache) * attn
+            try:
+                attn = self.attention(x, **kwargs)
+                if nan_audit:
+                    print(f"[NAN AUDIT] Attention output shape: {attn.shape}, has NaN: {torch.isnan(attn).any().item()}")
+            except Exception as e:
+                if nan_audit:
+                    print(f"[NAN AUDIT] Exception in attention: {str(e)}")
+                raise
+        
+        try:
+            sigmoid_result = nn.Sigmoid()(self.gate_cache)
+            if nan_audit:
+                print(f"[NAN AUDIT] Sigmoid output shape: {sigmoid_result.shape}, has NaN: {torch.isnan(sigmoid_result).any().item()}")
+                if torch.isnan(sigmoid_result).any():
+                    print(f"[NAN AUDIT] NaN count in sigmoid output: {torch.isnan(sigmoid_result).sum().item()}")
+                    
+            attn_with_mem = sigmoid_result * attn
+            if nan_audit:
+                print(f"[NAN AUDIT] Gated attention shape: {attn_with_mem.shape}, has NaN: {torch.isnan(attn_with_mem).any().item()}")
+                if torch.isnan(attn_with_mem).any():
+                    print(f"[NAN AUDIT] NaN count in gated attention: {torch.isnan(attn_with_mem).sum().item()}")
+        except Exception as e:
+            if nan_audit:
+                print(f"[NAN AUDIT] Exception in sigmoid or multiplication: {str(e)}")
+            raise
 
-        h = x + self.dropout(self.attention_norm(attn_with_mem))
-        return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
+        try:
+            h = x + self.dropout(self.attention_norm(attn_with_mem))
+            if nan_audit:
+                print(f"[NAN AUDIT] After attention_norm shape: {h.shape}, has NaN: {torch.isnan(h).any().item()}")
+                
+            result = h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))
+            if nan_audit:
+                print(f"[NAN AUDIT] Final output shape: {result.shape}, has NaN: {torch.isnan(result).any().item()}")
+                if torch.isnan(result).any():
+                    print(f"[NAN AUDIT] NaN count in final output: {torch.isnan(result).sum().item()}")
+                    print(f"[NAN AUDIT] Final output stats - min: {result.min().item()}, max: {result.max().item()}, mean: {result.mean().item()}")
+            return result
+        except Exception as e:
+            if nan_audit:
+                print(f"[NAN AUDIT] Exception in final computation: {str(e)}")
+            raise
 
     def train_forward(self, x: torch.Tensor, *, loss_div_factor: Optional[Union[torch.Tensor, float]] = None, **kwargs) -> torch.Tensor:
         del loss_div_factor

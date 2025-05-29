@@ -27,9 +27,10 @@ from olmo_core.io import copy_file, file_exists, join_path
 from olmo_core.nn.conversion.state_mapping import TemplatePlaceholder
 from olmo_core.nn.hf.checkpoint import load_hf_model
 from olmo_core.nn.hf.convert import get_converter_from_hf
-from olmo_core.nn.transformer.config import TransformerConfig
 from olmo_core.nn.transformer.model import Transformer
 from olmo_core.utils import get_default_device, prepare_cli_environment
+# Add this import near the other imports
+from olmo_core.nn.transformer.config import TransformerConfig #, MemoryConfig
 
 log = logging.getLogger(__name__)
 
