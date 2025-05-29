@@ -1,0 +1,16 @@
+Training mode: full_model (1,753,507,852 trainable parameters)
+torch.Size([1, 165])
+Epoch 0: Loss: 0.012207151390612125
+Epoch 1: Loss: 0.008754735812544823
+Epoch 2: Loss: 0.0072789909318089485
+Epoch 3: Loss: 0.00731228431686759
+Epoch 4: Loss: 0.007227129768580198
+
+Peak GPU memory usage (full_model): 19830.73 MB
+Generating continuation for: The quick brown fox jumps over the lazy
+ jock. 
+
+Post a comment
+
+@tripto, thanks
+I guess I'm not the first. Anyone who can read a book, or is not to be, or two, or a lot of a book, or a lot of a lot of a book, a book, a, a, a, a, a, a, a, a, a, a a negative, a negative, a negative, a negative, a negative. I am not sure what to do with a lot of people. I am not sure what to do with the if this is is not the not the not the not the not the not the not the not the not the not the not not the not the not the not the not the not the not the the negative the not the the negative the same way the, the the negative the the way it's own the way it is the way of the the way of the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the way the[Max Tokens Reached]

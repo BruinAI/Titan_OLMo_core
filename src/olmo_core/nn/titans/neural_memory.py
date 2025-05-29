@@ -165,7 +165,7 @@ class ParallelMLPs(nn.Module):
         return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
     # @torch.compile()
-    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=False):
+    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=True):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
             
@@ -204,6 +204,8 @@ class ParallelMLPs(nn.Module):
             # assert not torch.isnan(outputs).any(), "Outputs contain NaN values, which is unexpected."
             # assert not torch.isinf(outputs).any(), "Outputs contain NaN or Inf values, which is unexpected."
             sqerr = (outputs - values).pow(2)  # squared error
+            #if not self.training:
+            #    print(outputs, values)
             
             input_params = tuple(current_params.values())
             mem_grads = torch.autograd.grad(
@@ -251,7 +253,7 @@ class ParallelMLPs(nn.Module):
             # clip norms
             clip_mem_g = 5
             clip_sur_g = 10
-            clip_w = 100
+            clip_w = 20
             
             # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
             # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
@@ -321,7 +323,7 @@ class NeuralMemory(nn.Module):
     """
 
     def __init__(self, emb_dim = 16, n_layers = 2, 
-                 hidden_dim = 32, nu = 0.001, l2_memory_weight = 0.05,
+                 hidden_dim = 32, nu = 0.001, l2_memory_weight = 0.,
                  use_global_sw = False, num_global_tokens = 0,
                  use_conv=False, retrieve_layer=True,
                  audit_grad=False):
@@ -366,7 +368,7 @@ class NeuralMemory(nn.Module):
         with torch.no_grad():
             self.alpha.bias.fill_(-3) # alpha needs to be close to 0: beta = 1 - alpha close to 1
             self.eta.bias.fill_(2) # eta needs to be close to 1 for proper momentum
-            self.theta.bias.fill_(-4.5) # theta needs to be close to 0 for low learning rate
+            self.theta.bias.fill_(-5) # theta needs to be close to 0 for low learning rate
 
         self.silu = nn.SiLU()
         self.sigmoid = nn.Sigmoid()
