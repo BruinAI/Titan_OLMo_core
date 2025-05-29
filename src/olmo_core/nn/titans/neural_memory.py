@@ -51,86 +51,49 @@ class ParallelMLPs(nn.Module):
         final_norm = 2 * alpha * (torch.sqrt(1 + norm / (alpha + eps)) - 1)
         return g * (final_norm / (norm + eps)) if norm > 0 else g
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.shape[0] != len(self.mlps):
-            raise ValueError(
-                f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
-            )
-        outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
-        return torch.stack(outputs, dim=0) + x  # residual connection
-    
     # def forward(self, x: torch.Tensor) -> torch.Tensor:
     #     if x.shape[0] != len(self.mlps):
-    #         raise ValueError(f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}")
+    #         raise ValueError(
+    #             f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
+    #         )
+    #     outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
+    #     return torch.stack(outputs, dim=0) + x  # residual connection
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.shape[0] != len(self.mlps):
+            raise ValueError(f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}")
         
-    #     # Debug: Check input for extreme values
-    #     if torch.isnan(x).any():
-    #         raise ValueError("Input x contains NaN")
-    #     if torch.isinf(x).any():
-    #         raise ValueError("Input x contains Inf")
+        # Debug: Check input for extreme values
+        if torch.isnan(x).any():
+            raise ValueError("Input x contains NaN")
+        if torch.isinf(x).any():
+            raise ValueError("Input x contains Inf")
         
-    #     # Check for extreme values that might cause numerical issues
-    #     x_min, x_max = x.min(), x.max()
-    #     if x_max > 1e10 or x_min < -1e10:
-    #         print(f"WARNING: Input x has extreme values: min={x_min}, max={x_max}")
-        
-    #     outputs = []
-    #     for i in range(x.shape[0]):
-    #         single_input = x[i]
-            
-    #         # Debug single input
-    #         if torch.isnan(single_input).any():
-    #             raise ValueError(f"Input x[{i}] contains NaN")
-    #         if torch.isinf(single_input).any():
-    #             raise ValueError(f"Input x[{i}] contains Inf")
-                
-    #         try:
-    #             single_output = self.mlps[i](single_input)
-                
-    #             # Debug single output
-    #             if torch.isnan(single_output).any():
-    #                 print(f"ERROR: MLP {i} produced NaN output")
-    #                 print(f"  Input stats: min={single_input.min()}, max={single_input.max()}, mean={single_input.mean()}, std={single_input.std()}")
-                    
-    #                 # Debug each layer in the MLP
-    #                 temp_x = single_input
-    #                 for j, layer in enumerate(self.mlps[i]):
-    #                     temp_x = layer(temp_x)
-    #                     if torch.isnan(temp_x).any():
-    #                         print(f"  Layer {j} ({type(layer).__name__}) produced NaN")
-    #                         print(f"    Input to this layer: min={temp_x.min()}, max={temp_x.max()}")
-    #                         break
-    #                     else:
-    #                         print(f"  Layer {j} ({type(layer).__name__}) OK: min={temp_x.min()}, max={temp_x.max()}")
-                    
-    #                 raise ValueError(f"MLP {i} produced NaN output")
-                
-    #             if torch.isinf(single_output).any():
-    #                 raise ValueError(f"MLP {i} produced Inf output")
-                    
-    #             outputs.append(single_output)
-                
-    #         except Exception as e:
-    #             print(f"Error in MLP {i}: {e}")
-    #             print(f"  Input shape: {single_input.shape}")
-    #             print(f"  Input stats: min={single_input.min()}, max={single_input.max()}")
-    #             raise
-        
-    #     stacked_outputs = torch.stack(outputs, dim=0)
-        
-    #     # Debug the residual connection
-    #     if torch.isnan(stacked_outputs).any():
-    #         raise ValueError("Stacked outputs contain NaN before residual")
-        
-    #     final_output = stacked_outputs + x
-        
-    #     if torch.isnan(final_output).any():
-    #         print("ERROR: Final output contains NaN after residual connection")
-    #         print(f"  stacked_outputs stats: min={stacked_outputs.min()}, max={stacked_outputs.max()}")
-    #         print(f"  x stats: min={x.min()}, max={x.max()}")
-    #         raise ValueError("Final output contains NaN after residual connection")
-        
-    #     return final_output
+        def output_activation_stats(x: torch.Tensor):
+            min, max, mean, std, norm = x.min(), x.max(), x.mean(), x.std(), x.norm()
+            if x.isnan().any(): raise ValueError("Output contains NaN values")
+            if x.isinf().any(): raise ValueError("Output contains Inf values")
+            output = f"min={min:.4f}, max={max:.4f}, mean={mean:.4f}, std={std:.4f}, norm={norm:.4f}"
+            print(output)
+
+        outputs = []
+        for i in range(x.shape[0]):
+            single_input = x[i]
+            print(f"MLP {i}:")
+            print("Input: ", end='')
+            output_activation_stats(single_input)
+            # Debug each layer in the MLP
+            temp_x = single_input
+            for j, layer in enumerate(self.mlps[i]):  # type ignore
+                temp_x = layer(temp_x)
+                layer_type = type(layer).__name__
+                print(f"Layer {j}, {layer_type} output: ", end='')
+                output_activation_stats(temp_x)
+
+            outputs.append(temp_x)
+        stacked_outputs = torch.stack(outputs, dim=0)
+        final_output = stacked_outputs + x
+        return final_output
     
     @torch.compile()
     def calculate_coeffs(self, beta_vecs, eta_vecs, theta_vecs):
@@ -193,7 +156,7 @@ class ParallelMLPs(nn.Module):
             # ================================================================
             p_T, q_T, A_T, B_coeffs, D_coeffs = self.calculate_coeffs(beta_vecs, eta_vecs, theta_vecs)
 
-            if ckpt_memory:
+            if ckpt_memory and False:
                 # Using checkpointing to save memory (recomputes forward pass during back-prop instead of storing all activations)
                 def _fwd(keys):
                     return functional_call(self, current_params, keys)
@@ -320,8 +283,8 @@ class NeuralMemory(nn.Module):
     2. but has shared, learned K and V matrices ad 
     """
 
-    def __init__(self, emb_dim = 16, n_layers = 2, 
-                 hidden_dim = 32, nu = 0.001, l2_memory_weight = 0.00,
+    def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32,
+                 nu = 0.001, base_lr=1e-5, l2_memory_weight = 0.00, 
                  use_global_sw = False, num_global_tokens = 0,
                  use_conv=False, retrieve_layer=True,
                  audit_grad=False):
@@ -337,6 +300,7 @@ class NeuralMemory(nn.Module):
         self.mlp_template_weights = self.init_mlp_template_weights()
         self.mlp_reset = True
         self.nu = nu
+        self.base_lr=base_lr
         self.l2_memory_weight = l2_memory_weight
         self.use_conv = use_conv
         self.retrieve_layer = retrieve_layer
@@ -362,11 +326,10 @@ class NeuralMemory(nn.Module):
         torch.nn.init.normal_(self.eta.weight, mean=0.0, std=0.02)
         torch.nn.init.normal_(self.theta.weight, mean=0.0, std=0.02)
 
-        # Initialize bias terms to -4.5 (sigmoid(-3.5)=0.01)
         with torch.no_grad():
             self.alpha.bias.fill_(-3) # alpha needs to be close to 0: beta = 1 - alpha close to 1
             self.eta.bias.fill_(2) # eta needs to be close to 1 for proper momentum
-            self.theta.bias.fill_(-4.5) # theta needs to be close to 0 for low learning rate
+            self.theta.bias.fill_(-4.5) # theta needs to be close to 0 for low learning rate, -4.5 (sigmoid(-3.5)=0.01)
 
         self.silu = nn.SiLU()
         self.sigmoid = nn.Sigmoid()
@@ -403,13 +366,13 @@ class NeuralMemory(nn.Module):
         else:
             layers: List[nn.Module] = [
                 nn.Linear(self.emb_dim, self.hidden_dim),
-                nn.LayerNorm(self.hidden_dim),
+                # nn.LayerNorm(self.hidden_dim),
                 nn.SiLU(),
             ]
             for k in range(self.n_layers - 2):
                 layers += [
                     nn.Linear(self.hidden_dim, self.hidden_dim),
-                    nn.LayerNorm(self.hidden_dim),
+                    # nn.LayerNorm(self.hidden_dim),
                     nn.SiLU(),
                 ]
             layers.append(nn.Linear(self.hidden_dim, self.emb_dim))
@@ -508,7 +471,9 @@ class NeuralMemory(nn.Module):
         values = F.normalize(values, eps=1e-8)
 
         # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
+        # beta_vec = 1 - self.base_lr * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
         beta_vec = 1 - self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
+        # eta_vec = self.base_lr * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
         eta_vec = self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
         theta_vec = self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)
 
@@ -551,7 +516,8 @@ class NeuralMemory(nn.Module):
                         torch.nn.init.ones_(new_param.data)  # LayerNorm weight (gamma)
                     elif isinstance(parent_module, nn.Linear):
                         # Kaiming He initialization for Linear layers
-                        torch.nn.init.kaiming_normal_(new_param.data, mode='fan_in', nonlinearity='relu')
+                        # torch.nn.init.kaiming_normal_(new_param.data, mode='fan_in', nonlinearity='relu')
+                        torch.nn.init.xavier_normal_(new_param.data, gain=1.0)  # Xavier initialization
                         # Alternative: torch.nn.init.normal_(new_param.data, mean=0, std=0.02)
                     else:
                         # Fallback for other types of weights if MLP structure changes
