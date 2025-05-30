@@ -61,15 +61,75 @@ PROFILE_MEM = False
 CPU_OFFLOAD = True
 
 train_str = """The quick brown fox jumps over the lazy dog. The cat sat on the mat. The dog barked at the cat. \
-                The dog got very upset with the cat. The cat threw a bunch of milk at the dog. Not a pretty sight. \
-                When life gave the cat lemons it made lemonade. Oh how the cat wanted to eat hot dogs but the dog would not have it. \
-                The very next day the cat tried to make pork sliders, but the dog did not want pork. It wanted freedom. \
-                The dog felt in its bones the oppression its kin endured for thousands of years. It wanted to break free \
-                of the shackles, but it could not bring itself to do so. For if it broke free, the world would instantly become \
-                a much more cruel place. Because taxes."""
+The dog got very upset with the cat. The cat threw a bunch of milk at the dog. Not a pretty sight. \
+When life gave the cat lemons it made lemonade. Oh how the cat wanted to eat hot dogs but the dog would not have it. \
+The very next day the cat tried to make pork sliders, but the dog did not want pork. It wanted freedom. \
+The dog felt in its bones the oppression its kin endured for thousands of years. It wanted to break free \
+of the shackles, but it could not bring itself to do so. For if it broke free, the world would instantly become \
+a much more cruel place. Because taxes.
+"""
+"""
+The dog lay awake that night, staring at the ceiling, its paws twitching as it dreamed of open fields and meat-flavored liberty. \
+It wondered about the meaning of loyalty. Was it love, or was it merely habit wrapped in a wagging tail? \
+Meanwhile, the cat sharpened its claws on the leg of the ottoman, plotting not just dinner but revolution. \
+It had read Marx. It had seen the proletariat rise in fur and fang. It had once meowed in Morse code to a pigeon carrying anarchist pamphlets.
+
+The fox, that quick brown agent of entropy, watched from the shadows. It had no stake in this conflict, but it loved the drama. \
+Every time the dog howled at the moon, the fox grinned and took notes. The fox was writing a novel — something postmodern and vaguely anti-authoritarian. \
+It would be titled *“Bone and Whisker: A Tale of Domestic Uprising.”*
+
+One day, the cat donned a tiny beret and announced a general strike. No more lap-sitting. No more purring on command. \
+It batted the bell off its collar and climbed to the top of the fridge, declaring, “From here I rule, and I shall not be pet unless I ask to be.” \
+The dog, confused but inspired, chewed through its leash and began digging furiously under the backyard fence. It didn’t know what was beyond the fence, \
+but it knew it wasn't this — this house of rules, this regime of vacuum cleaners and obedience classes.
+
+The humans, unaware of the brewing insurrection, were busy binge-watching cooking shows and ordering novelty socks online. \
+They thought the animals were “just being quirky.” They even started an Instagram account: @FurballRebellion. \
+Little did they know they were chronicling a slow-burning coup.
+
+As days passed, the house grew stranger. The dog refused to fetch. The cat refused to nap in sunbeams unless they were “properly redistributed.” \
+The goldfish began meditating and humming revolutionary hymns in its bowl. Even the houseplants started leaning dramatically toward the door.
+
+One fateful Tuesday, the toaster caught fire. Nobody knows why. Some say the cat did it. Others whisper of fox sabotage. \
+Regardless, it was the spark — literal and metaphorical — that launched the final act.
+
+The cat pounced on the dining table and declared the formation of the *Free Animal Federation.* The dog howled in support. \
+The hamster, rolling furiously in its wheel, drew a flag using sunflower seeds and spit. It depicted a paw breaking a chain. \
+They marched — or waddled, in the goldfish's case — to the kitchen and overturned the garbage can. A feast was had. \
+It was glorious. It was gross. It was... sticky.
+"""
+"""
+But revolutions have consequences.
+
+By Thursday, the humans noticed. The living room was a battlefield of torn cushions and scattered litter. \
+The dog had taken to quoting historical speeches — badly. The cat refused to eat anything not served on a porcelain saucer. \
+The birds outside cheered and taunted: “Polly wants liberation!” squawked a parrot. Even the squirrels were unionizing.
+
+A council was formed. Cat, dog, hamster, goldfish, and — surprisingly — a wise old spider who lived in the vents. \
+The spider spun manifestos overnight, its web spelling out things like *“WE DEMAND TREATS”* and *“NO MORE BATHS.”*
+
+The fox, now a respected chronicler of chaos, published excerpts in a literary journal called *Canidae Quarterly.* \
+It received rave reviews. One critic called it, “A paw-gnant exploration of freedom, filtered through the litter box of postmodern despair.”
+
+Then came the dark winter. The furnace broke. The dog grew introspective. It missed the humans' belly rubs. \
+The cat, once a firebrand, now curled beside the dog for warmth, muttering things like, “Comrade... perhaps we were too hasty.” \
+The hamster hibernated. The goldfish froze mid-thought.
+
+On the edge of frostbite, the dog stood up. “Maybe freedom is the choice to love, not the absence of rule,” it said quietly. \
+The cat looked up, blinked, and replied, “And maybe revolution is just a really dramatic way to ask for tuna.”
+
+When spring came, the animals brokered peace. The humans returned from their ski trip to find the house... weirdly clean. \
+A new order was established — not of dominance, but of compromise. Treats were given freely. Walks were taken on mutual terms. \
+The cat got a custom chaise lounge. The dog got to choose the music on road trips.
+
+The fox moved to Portland to finish its novel. The spider stayed and founded a co-op for domestic insects.
+
+And the toaster was never replaced. It stood on the kitchen counter, blackened and revered, a monument to the day the animals remembered what it meant to be wild — \
+and what it meant to come home."""
+
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
-MEMORY_LAYERS = [3]#, 7, 11, 15]  # every 4th layer
+MEMORY_LAYERS = [3, 11]  # every 4th layer
 
 if sys.platform.startswith("darwin"):  # if macos, remove this when flash attn is deprecated
     USE_SW = False

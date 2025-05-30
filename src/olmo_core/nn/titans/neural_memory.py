@@ -242,11 +242,29 @@ class ParallelMLPs(nn.Module):
             # clip norms
             clip_mem_g = 4
             clip_sur_g = 10
-            ortho_lambda = 0.005  # orthonormality coefficient
+            ortho_lambda = 1e-5  # orthonormality coefficient
             clamp_w = 1e2
 
             # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
             # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
+            def project_to_stiefel(W, g, mixing=0.99):
+                # g := task gradient; W := current parameter
+                WTg = W.T @ g
+                sym = 0.5 * (WTg + WTg.T)                # symmetric part
+                g_proj = g - W @ sym                     # remove normal component
+                return (1-mixing)*g_proj + mixing*g      # optional blend
+
+            # In update_memory, *before* update_param loop
+            proj_mem_grads = []
+            for name, g in zip(current_params.keys(), mem_grads):
+                if g is not None and 'weight' in name and g.ndim == 2:
+                    #print("ortho regularizing")
+                    W = current_params[name].detach()
+                    
+                    # (1-mixing) x projection + mixing x original
+                    g = project_to_stiefel(W, g, mixing=0.9) 
+                proj_mem_grads.append(g)
+
             # mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
             # surp_grads = [self.scaled_root_excess_norm(g, clip_sur_g) if g is not None else g for g in surp_grads]
 
@@ -260,10 +278,10 @@ class ParallelMLPs(nn.Module):
                 # M_T (param) = p_T·M_0 + A_T·S_0 − Σ_j θ·B_{T,j}·u_j
                 orig_weight_coeff = p_T[idx] * self.l2_factor
                 new_param = orig_weight_coeff * orig_param + A_T[idx] * surprise - grad
-                # # Apply orthonormality regularization for weight matrices
+                # Apply orthonormality regularization for weight matrices
                 # if 'weight' in name and len(new_param.shape) == 2:
                 #     new_param = self.orthonormality_regularization(new_param, ortho_lambda)
-                print(f"Updating param {name} with norm: {orig_param.norm().item()}, grad norm: {grad.norm().item()}")
+                # print(f"Updating param {name} with norm: {orig_param.norm().item()}, grad norm: {grad.norm().item()}")
                 return new_param.detach().clamp(-clamp_w, clamp_w).requires_grad_(True)
 
             # q_T * S_0 - Σ_j θ·D_{T,j}·u_j
@@ -279,7 +297,7 @@ class ParallelMLPs(nn.Module):
 
             new_params = {
                 name: update_param(name, grad)
-                for name, grad in zip(current_params.keys(), mem_grads)
+                for name, grad in zip(current_params.keys(), proj_mem_grads)
             }
 
             surprises = {
@@ -319,7 +337,7 @@ class NeuralMemory(nn.Module):
 
     def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32,
                  nu = 0.01, l2_memory_weight = 0.00,
-                 alpha_scale=0.01, eta_scale=0.1, theta_scale=3e-4,
+                 alpha_scale=0.005, eta_scale=0.1, theta_scale=3e-4,
                  use_global_sw = False, num_global_tokens = 0,
                  use_conv=False, retrieve_layer=True,
                  audit_grad=False):
@@ -614,3 +632,39 @@ class NeuralMemory(nn.Module):
                     raise ValueError(f"Updated weight for {clean_name} contains NaN or Inf values.")
 
                 template_weight.data.copy_(new_weight)  # copy into Parameter to preserve state‑dict link
+        
+    def print_mlp_state_stats(self):
+        """
+        Print statistics about the current MLP parameters.
+        """
+        if not self.mlp_states or len(self.mlp_states) == 0:
+            print("No MLP states available")
+            return
+        
+        current_state = self.mlp_states[-1]
+        print("\n=== Current MLP State Statistics ===")
+        
+        for name, param in current_state.items():
+            # Skip parameters that might not be tensors
+            if not isinstance(param, torch.Tensor):
+                continue
+            
+            # Clean the name to match template weight format
+            match = ParallelMLPs._mlp_index_regex.search(name) if hasattr(ParallelMLPs, '_mlp_index_regex') else None
+            if match:
+                clean_name = name[match.end():].replace('.', '_')
+            else:
+                clean_name = name.replace('.', '_')
+            
+            # Calculate statistics
+            print(
+                f"[CURRENT STATE: {clean_name}] "
+                f"min={param.data.min().item():.6f}, "
+                f"median={param.data.median().item():.6f}, "
+                f"max={param.data.max().item():.6f}, "
+                f"mean={param.data.mean().item():.6f}, "
+                f"std={param.data.std().item():.6f}, "
+                f"norm={param.data.norm().item():.6f}"
+            )
+        
+        print("=====================================\n")

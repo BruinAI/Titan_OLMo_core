@@ -393,6 +393,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             raise
 
     def train_forward(self, x: torch.Tensor, *, loss_div_factor: Optional[Union[torch.Tensor, float]] = None, **kwargs) -> torch.Tensor:
+        print('=========== STARTED TRAIN FORWARD =====================')
         del loss_div_factor
         # initializing the memory for this batch
         if self.memory.mlps_processor is None:
@@ -406,10 +407,12 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             start = i * self.chunk_size
             end = min(start + self.chunk_size, x.shape[1])
             chunk_x = x[:, start:end, :]
+            
             _loss = self.memory.update(chunk_x)
             print(f"Chunk {i}: Loss = {_loss.item()}")
             gate = self.memory.retrieve(chunk_x)
             gates.append(gate)
+            self.memory.print_mlp_state_stats()
             self.memory.train_initial_mlp()
         gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
         
