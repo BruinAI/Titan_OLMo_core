@@ -1,4 +1,3 @@
-from mypy.main import b
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -54,35 +53,41 @@ class ParallelMLPs(nn.Module):
     
     @staticmethod
     @torch.compile()
-    def element_wise_scaled_root_excess(g: torch.Tensor, alpha=5, eps=1e-8) -> torch.Tensor:
+    def orthonormality_regularization(weight: torch.Tensor, lambda_ortho=0.005) -> torch.Tensor:
         """
-        Apply the scaled root excess transformation element-wise to each value in the tensor.
-        Formula for each element x: 2 * alpha * (sqrt(1 + |x| / (alpha + eps)) - 1) * sign(x)
+        Apply orthonormality regularization to the weight matrix.
+        This function applies a correction to the weight matrix to encourage orthonormality.
         """
-        if g is None:
-            return g
-        
-        # Get the signs of each element
-        signs = torch.sign(g)
-        
-        # Get absolute values
-        abs_values = torch.abs(g)
-        
-        # Apply the transformation element-wise
-        transformed = 2 * alpha * (torch.sqrt(1 + abs_values / (alpha + eps)) - 1)
-        
-        # Restore the original signs
-        return transformed * signs
+        d_in, d_out = weight.shape
+        if min(d_in, d_out) > 1:  # Only apply to matrices where orthonormality makes sense
+            # Choose appropriate orthonormality based on matrix shape
+            if d_out <= d_in:
+                # Column orthonormality: W^T W = I
+                weight_product = torch.matmul(weight.T, weight)
+                identity = torch.eye(d_out, device=weight.device)
+            else:
+                # Row orthonormality: W W^T = I
+                weight_product = torch.matmul(weight, weight.T)
+                identity = torch.eye(d_in, device=weight.device)
+            deviation = weight_product - identity  # Calculate deviation from orthonormality
+            # Apply a small correction toward orthonormality
+            # Using the gradient: 4W(W^T W - I) for column-wise
+            if d_out <= d_in:  # Column orthonormality correction
+                ortho_correction = 4 * lambda_ortho * torch.matmul(weight, deviation)
+            else:  # Row orthonormality correction
+                ortho_correction = 4 * lambda_ortho * torch.matmul(deviation, weight)
+            # Apply the correction
+            return weight - ortho_correction
+        else:
+            return weight  # No correction needed for 1D or scalar weights
 
-    # def forward(self, x: torch.Tensor) -> torch.Tensor:
-    #     if x.shape[0] != len(self.mlps):
-    #         raise ValueError(
-    #             f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
-    #         )
-    #     outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
-    #     return torch.stack(outputs, dim=0) + x  # residual connection
-    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.shape[0] != len(self.mlps):
+            raise ValueError(f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}")
+        outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
+        return torch.stack(outputs, dim=0) + x  # residual connection
+    
+    def forward_verbose(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[0] != len(self.mlps):
             raise ValueError(f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}")
         
@@ -237,13 +242,13 @@ class ParallelMLPs(nn.Module):
             # clip norms
             clip_mem_g = 4
             clip_sur_g = 10
-            clip_w = 80
             ortho_lambda = 0.005  # orthonormality coefficient
+            clamp_w = 1e2
 
             # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
             # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
-            mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
-            surp_grads = [self.scaled_root_excess_norm(g, clip_sur_g) if g is not None else g for g in surp_grads]
+            # mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
+            # surp_grads = [self.scaled_root_excess_norm(g, clip_sur_g) if g is not None else g for g in surp_grads]
 
             # p_T * M_0 + A_T[idx] * S_0 + gradient_term
             def update_param(name, grad):
@@ -255,36 +260,11 @@ class ParallelMLPs(nn.Module):
                 # M_T (param) = p_T·M_0 + A_T·S_0 − Σ_j θ·B_{T,j}·u_j
                 orig_weight_coeff = p_T[idx] * self.l2_factor
                 new_param = orig_weight_coeff * orig_param + A_T[idx] * surprise - grad
-                
-                #Apply orthonormality regularization for weight matrices
-                if 'weight' in name and len(new_param.shape) == 2:
-                    weight = new_param
-                    d_in, d_out = weight.shape
-                    
-                    # Only apply to matrices where orthonormality makes sense
-                    if min(d_in, d_out) > 1:
-                        # Choose appropriate orthonormality based on matrix shape
-                        if d_out <= d_in:  # Column orthonormality: W^T W = I
-                            weight_product = torch.matmul(weight.T, weight)
-                            identity = torch.eye(d_out, device=weight.device)
-                        else:  # Row orthonormality: W W^T = I
-                            weight_product = torch.matmul(weight, weight.T)
-                            identity = torch.eye(d_in, device=weight.device)
-                        
-                        deviation = weight_product - identity  # Calculate deviation from orthonormality
-                        
-                        # Apply a small correction toward orthonormality
-                        # Using the gradient: 4W(W^T W - I) for column-wise
-                        if d_out <= d_in:  # Column orthonormality correction
-                            ortho_correction = 4 * ortho_lambda * torch.matmul(weight, deviation)
-                        else:  # Row orthonormality correction
-                            ortho_correction = 4 * ortho_lambda * torch.matmul(deviation, weight)
-                        
-                        # Apply the correction
-                        new_param = weight - ortho_correction
-                
-                # Apply clipping as in the original code
-                return new_param.detach().clamp(-clip_w, clip_w).requires_grad_(True)
+                # # Apply orthonormality regularization for weight matrices
+                # if 'weight' in name and len(new_param.shape) == 2:
+                #     new_param = self.orthonormality_regularization(new_param, ortho_lambda)
+                print(f"Updating param {name} with norm: {orig_param.norm().item()}, grad norm: {grad.norm().item()}")
+                return new_param.detach().clamp(-clamp_w, clamp_w).requires_grad_(True)
 
             # q_T * S_0 - Σ_j θ·D_{T,j}·u_j
             def update_surprise(name, grad):
@@ -294,7 +274,8 @@ class ParallelMLPs(nn.Module):
                 old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))
                 # S_T (surprise) = q_T·S_0 − Σ_j θ·D_{T,j}·u_j
                 new_surprise = q_T[idx] * old_surprise - grad
-                return new_surprise.detach().clamp(-clip_w, clip_w)
+                # print(f"Updating param {name} with norm: {old_surprise.norm().item()}, update norm: {grad.norm().item()}")
+                return new_surprise.detach().clamp(-clamp_w, clamp_w)
 
             new_params = {
                 name: update_param(name, grad)
@@ -337,7 +318,8 @@ class NeuralMemory(nn.Module):
     """
 
     def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32,
-                 nu = 0.001, base_lr=1e-5, l2_memory_weight = 0.00, 
+                 nu = 0.01, l2_memory_weight = 0.00,
+                 alpha_scale=0.01, eta_scale=0.1, theta_scale=3e-4,
                  use_global_sw = False, num_global_tokens = 0,
                  use_conv=False, retrieve_layer=True,
                  audit_grad=False):
@@ -353,8 +335,10 @@ class NeuralMemory(nn.Module):
         self.mlp_template_weights = self.init_mlp_template_weights()
         self.mlp_reset = True
         self.nu = nu
-        self.base_lr=base_lr
         self.l2_memory_weight = l2_memory_weight
+        self.alpha_scale = alpha_scale
+        self.eta_scale = eta_scale
+        self.theta_scale=theta_scale
         self.use_conv = use_conv
         self.retrieve_layer = retrieve_layer
         self.audit_grad = audit_grad
@@ -380,9 +364,12 @@ class NeuralMemory(nn.Module):
         torch.nn.init.normal_(self.theta.weight, mean=0.0, std=0.02)
 
         with torch.no_grad():
-            self.alpha.bias.fill_(-3) # alpha needs to be close to 0: beta = 1 - alpha close to 1
-            self.eta.bias.fill_(2) # eta needs to be close to 1 for proper momentum
-            self.theta.bias.fill_(-4.5) # theta needs to be close to 0 for low learning rate, -4.5 (sigmoid(-3.5)=0.01)
+            self.alpha.bias.fill_(0)
+            self.eta.bias.fill_(0)
+            self.theta.bias.fill_(0)
+            # self.alpha.bias.fill_(-3) # alpha needs to be close to 0: beta = 1 - alpha close to 1
+            # self.eta.bias.fill_(2) # eta needs to be close to 1 for proper momentum
+            # self.theta.bias.fill_(-4.5) # theta needs to be close to 0 for low learning rate, -4.5 (sigmoid(-3.5)=0.01)
 
         self.silu = nn.SiLU()
         self.sigmoid = nn.Sigmoid()
@@ -525,11 +512,9 @@ class NeuralMemory(nn.Module):
         values = F.normalize(values, eps=1e-8)
 
         # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
-        # beta_vec = 1 - self.base_lr * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
-        beta_vec = 1 - self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
-        # eta_vec = self.base_lr * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
-        eta_vec = self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
-        theta_vec = self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)
+        beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
+        eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
+        theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)
 
         self.surprise, losses, next_mlp_params = self.mlps_processor.update_memory(  # type: ignore
             self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec, audit_grad = self.audit_grad
