@@ -50,87 +50,109 @@ class ParallelMLPs(nn.Module):
         norm = g.norm()
         final_norm = 2 * alpha * (torch.sqrt(1 + norm / (alpha + eps)) - 1)
         return g * (final_norm / (norm + eps)) if norm > 0 else g
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if x.shape[0] != len(self.mlps):
-            raise ValueError(
-                f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
-            )
-        outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
-        return torch.stack(outputs, dim=0) + x  # residual connection
     
+    @staticmethod
+    @torch.compile()
+    def element_wise_scaled_root_excess(g: torch.Tensor, alpha=5, eps=1e-8) -> torch.Tensor:
+        """
+        Apply the scaled root excess transformation element-wise to each value in the tensor.
+        Formula for each element x: 2 * alpha * (sqrt(1 + |x| / (alpha + eps)) - 1) * sign(x)
+        """
+        if g is None:
+            return g
+        
+        # Get the signs of each element
+        signs = torch.sign(g)
+        
+        # Get absolute values
+        abs_values = torch.abs(g)
+        
+        # Apply the transformation element-wise
+        transformed = 2 * alpha * (torch.sqrt(1 + abs_values / (alpha + eps)) - 1)
+        
+        # Restore the original signs
+        return transformed * signs
+
     # def forward(self, x: torch.Tensor) -> torch.Tensor:
     #     if x.shape[0] != len(self.mlps):
-    #         raise ValueError(f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}")
+    #         raise ValueError(
+    #             f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
+    #         )
+    #     outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
+    #     return torch.stack(outputs, dim=0) + x  # residual connection
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.shape[0] != len(self.mlps):
+            raise ValueError(f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}")
         
-    #     # Debug: Check input for extreme values
-    #     if torch.isnan(x).any():
-    #         raise ValueError("Input x contains NaN")
-    #     if torch.isinf(x).any():
-    #         raise ValueError("Input x contains Inf")
+        # Debug: Check input for extreme values
+        if torch.isnan(x).any():
+            raise ValueError("Input x contains NaN")
+        if torch.isinf(x).any():
+            raise ValueError("Input x contains Inf")
         
-    #     # Check for extreme values that might cause numerical issues
-    #     x_min, x_max = x.min(), x.max()
-    #     if x_max > 1e10 or x_min < -1e10:
-    #         print(f"WARNING: Input x has extreme values: min={x_min}, max={x_max}")
+        # Check for extreme values that might cause numerical issues
+        x_min, x_max = x.min(), x.max()
+        if x_max > 1e10 or x_min < -1e10:
+            print(f"WARNING: Input x has extreme values: min={x_min}, max={x_max}")
         
-    #     outputs = []
-    #     for i in range(x.shape[0]):
-    #         single_input = x[i]
+        outputs = []
+        for i in range(x.shape[0]):
+            single_input = x[i]
             
-    #         # Debug single input
-    #         if torch.isnan(single_input).any():
-    #             raise ValueError(f"Input x[{i}] contains NaN")
-    #         if torch.isinf(single_input).any():
-    #             raise ValueError(f"Input x[{i}] contains Inf")
+            # Debug single input
+            if torch.isnan(single_input).any():
+                raise ValueError(f"Input x[{i}] contains NaN")
+            if torch.isinf(single_input).any():
+                raise ValueError(f"Input x[{i}] contains Inf")
                 
-    #         try:
-    #             single_output = self.mlps[i](single_input)
+            try:
+                single_output = self.mlps[i](single_input)
                 
-    #             # Debug single output
-    #             if torch.isnan(single_output).any():
-    #                 print(f"ERROR: MLP {i} produced NaN output")
-    #                 print(f"  Input stats: min={single_input.min()}, max={single_input.max()}, mean={single_input.mean()}, std={single_input.std()}")
+                # Debug single output
+                if torch.isnan(single_output).any():
+                    print(f"ERROR: MLP {i} produced NaN output")
+                    print(f"  Input stats: min={single_input.min()}, max={single_input.max()}, mean={single_input.mean()}, std={single_input.std()}")
                     
-    #                 # Debug each layer in the MLP
-    #                 temp_x = single_input
-    #                 for j, layer in enumerate(self.mlps[i]):
-    #                     temp_x = layer(temp_x)
-    #                     if torch.isnan(temp_x).any():
-    #                         print(f"  Layer {j} ({type(layer).__name__}) produced NaN")
-    #                         print(f"    Input to this layer: min={temp_x.min()}, max={temp_x.max()}")
-    #                         break
-    #                     else:
-    #                         print(f"  Layer {j} ({type(layer).__name__}) OK: min={temp_x.min()}, max={temp_x.max()}")
+                    # Debug each layer in the MLP
+                    temp_x = single_input
+                    for j, layer in enumerate(self.mlps[i]):
+                        temp_x = layer(temp_x)
+                        if torch.isnan(temp_x).any():
+                            print(f"  Layer {j} ({type(layer).__name__}) produced NaN")
+                            print(f"    Input to this layer: min={temp_x.min()}, max={temp_x.max()}")
+                            break
+                        else:
+                            print(f"  Layer {j} ({type(layer).__name__}) OK: min={temp_x.min()}, max={temp_x.max()}")
                     
-    #                 raise ValueError(f"MLP {i} produced NaN output")
+                    raise ValueError(f"MLP {i} produced NaN output")
                 
-    #             if torch.isinf(single_output).any():
-    #                 raise ValueError(f"MLP {i} produced Inf output")
+                if torch.isinf(single_output).any():
+                    raise ValueError(f"MLP {i} produced Inf output")
                     
-    #             outputs.append(single_output)
+                outputs.append(single_output)
                 
-    #         except Exception as e:
-    #             print(f"Error in MLP {i}: {e}")
-    #             print(f"  Input shape: {single_input.shape}")
-    #             print(f"  Input stats: min={single_input.min()}, max={single_input.max()}")
-    #             raise
+            except Exception as e:
+                print(f"Error in MLP {i}: {e}")
+                print(f"  Input shape: {single_input.shape}")
+                print(f"  Input stats: min={single_input.min()}, max={single_input.max()}")
+                raise
         
-    #     stacked_outputs = torch.stack(outputs, dim=0)
+        stacked_outputs = torch.stack(outputs, dim=0)
         
-    #     # Debug the residual connection
-    #     if torch.isnan(stacked_outputs).any():
-    #         raise ValueError("Stacked outputs contain NaN before residual")
+        # Debug the residual connection
+        if torch.isnan(stacked_outputs).any():
+            raise ValueError("Stacked outputs contain NaN before residual")
         
-    #     final_output = stacked_outputs + x
+        final_output = stacked_outputs + x
         
-    #     if torch.isnan(final_output).any():
-    #         print("ERROR: Final output contains NaN after residual connection")
-    #         print(f"  stacked_outputs stats: min={stacked_outputs.min()}, max={stacked_outputs.max()}")
-    #         print(f"  x stats: min={x.min()}, max={x.max()}")
-    #         raise ValueError("Final output contains NaN after residual connection")
+        if torch.isnan(final_output).any():
+            print("ERROR: Final output contains NaN after residual connection")
+            print(f"  stacked_outputs stats: min={stacked_outputs.min()}, max={stacked_outputs.max()}")
+            print(f"  x stats: min={x.min()}, max={x.max()}")
+            raise ValueError("Final output contains NaN after residual connection")
         
-    #     return final_output
+        return final_output
     
     @torch.compile()
     def calculate_coeffs(self, beta_vecs, eta_vecs, theta_vecs):
@@ -165,7 +187,7 @@ class ParallelMLPs(nn.Module):
         return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
     # @torch.compile()
-    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=True):
+    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=False, audit_grad=True):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
             
@@ -251,10 +273,12 @@ class ParallelMLPs(nn.Module):
                 print(f"D_coeffs stats - Min: {D_coeffs.min().item():.6f}, Max: {D_coeffs.max().item():.6f}, Mean: {D_coeffs.mean().item():.6f}")
 
             # clip norms
-            clip_mem_g = 5
+            clip_mem_g = 4
             clip_sur_g = 10
-            clip_w = 20
-            
+            clip_w = 80
+            # orthonormality coefficient
+            ortho_lambda = 0.005
+
             # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
             # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
             mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
@@ -270,6 +294,37 @@ class ParallelMLPs(nn.Module):
                 # M_T (param) = p_T·M_0 + A_T·S_0 − Σ_j θ·B_{T,j}·u_j
                 orig_weight_coeff = p_T[idx] * self.l2_factor
                 new_param = orig_weight_coeff * orig_param + A_T[idx] * surprise - grad
+                
+                #Apply orthonormality regularization for weight matrices
+                if 'weight' in name and len(new_param.shape) == 2:
+                    weight = new_param
+                    d_in, d_out = weight.shape
+                    
+                    # Only apply to matrices where orthonormality makes sense
+                    if min(d_in, d_out) > 1:
+                        # Choose appropriate orthonormality based on matrix shape
+                        if d_out <= d_in:  # Column orthonormality: W^T W = I
+                            weight_product = torch.matmul(weight.T, weight)
+                            identity = torch.eye(d_out, device=weight.device)
+                        else:  # Row orthonormality: W W^T = I
+                            weight_product = torch.matmul(weight, weight.T)
+                            identity = torch.eye(d_in, device=weight.device)
+                        
+                        # Calculate deviation from orthonormality
+                        deviation = weight_product - identity
+                        
+                        # Apply a small correction toward orthonormality
+                        # Using the gradient: 4W(W^T W - I) for column-wise
+                        
+                        if d_out <= d_in:  # Column orthonormality correction
+                            ortho_correction = 4 * ortho_lambda * torch.matmul(weight, deviation)
+                        else:  # Row orthonormality correction
+                            ortho_correction = 4 * ortho_lambda * torch.matmul(deviation, weight)
+                        
+                        # Apply the correction
+                        new_param = weight - ortho_correction
+                
+                # Apply clipping as in the original code
                 return new_param.detach().clamp(-clip_w, clip_w).requires_grad_(True)
 
             # q_T * S_0 - Σ_j θ·D_{T,j}·u_j
@@ -323,7 +378,7 @@ class NeuralMemory(nn.Module):
     """
 
     def __init__(self, emb_dim = 16, n_layers = 2, 
-                 hidden_dim = 32, nu = 0.001, l2_memory_weight = 0.00,
+                 hidden_dim = 32, nu = 0.01, l2_memory_weight = 0.05,
                  use_global_sw = False, num_global_tokens = 0,
                  use_conv=False, retrieve_layer=True,
                  audit_grad=False):
@@ -393,6 +448,7 @@ class NeuralMemory(nn.Module):
             torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.1)
 
         self.surprise = {}
+        
 
     def build_mlp(self):
         """
@@ -593,6 +649,7 @@ class NeuralMemory(nn.Module):
                     if not torch.isfinite(param).all():
                         raise ValueError(f"Parameter {name} contains NaN or Inf values.")
 
+                    param = param.clamp(-10, 10)  # Simple value clipping
                     if clean_name not in mlp_sums:
                         mlp_sums[clean_name] = param.detach().clone()  # initializing with clone for running sum
                     else:
