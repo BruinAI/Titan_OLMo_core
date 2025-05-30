@@ -128,7 +128,7 @@ class ParallelMLPs(nn.Module):
         return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
     # @torch.compile()
-    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=False):
+    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=True):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
             
@@ -167,6 +167,8 @@ class ParallelMLPs(nn.Module):
             # assert not torch.isnan(outputs).any(), "Outputs contain NaN values, which is unexpected."
             # assert not torch.isinf(outputs).any(), "Outputs contain NaN or Inf values, which is unexpected."
             sqerr = (outputs - values).pow(2)  # squared error
+            #if not self.training:
+            #    print(outputs, values)
             
             input_params = tuple(current_params.values())
             mem_grads = torch.autograd.grad(
@@ -214,7 +216,7 @@ class ParallelMLPs(nn.Module):
             # clip norms
             clip_mem_g = 5
             clip_sur_g = 10
-            clip_w = 100
+            clip_w = 20
             
             # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
             # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]

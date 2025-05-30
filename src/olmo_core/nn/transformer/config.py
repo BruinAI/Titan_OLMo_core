@@ -7,6 +7,7 @@ from olmo_core.config import Config, DType, StrEnum
 from olmo_core.doc_utils import beta_feature
 from olmo_core.exceptions import OLMoConfigurationError
 from olmo_core.utils import ensure_multiple_of
+from olmo_core.memory_config import MemoryConfig
 
 from ..attention import AttentionConfig, AttentionType
 from ..buffer_cache import BufferCache
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from .memory_transformer import MemoryTransformer
 
 log = logging.getLogger(__name__)
+
 
 
 class TransformerDataParallelWrappingStrategy(StrEnum):
@@ -133,18 +135,6 @@ class TransformerBlockType(StrEnum):
     ➡️ :class:`MoEHybridReorderedNormTransformerBlock`
     """
 
-
-@dataclass
-class MemoryConfig:
-    """Configuration class for memory components in the model."""
-    persistent_mem_len = 4
-    window_size = 16
-    chunk_size = 16
-    n_layers = 2
-    hidden_dim_multiple = 2
-    alpha = 0.999
-    eta = 0.60
-    theta = 0.05
 
 
 @dataclass

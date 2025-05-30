@@ -58,6 +58,8 @@ def dispatch_paddle_flash_attn(
     # Create query and key indices 
     q_idx = torch.arange(T_q, device=q.device).view(1, 1, T_q, 1)
     kv_idx = torch.arange(T_k, device=k.device).view(1, 1, 1, T_k)
+    
+    #print(window_size)
 
     # Generate the attention mask - True means positions to attend to
     attn_mask_bool = sliding_window_causal_idx(
@@ -104,6 +106,8 @@ def dispatch_flash_attn(
 ) -> torch.Tensor:
     if flash_attn is None:
         raise RuntimeError("flash-attn is required!")
+    
+    #print(window_size)
 
     if cu_seqlens is not None:
         if cu_seqlens_q is None:

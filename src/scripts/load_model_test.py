@@ -23,10 +23,11 @@ from transformers import AutoTokenizer
 import bitsandbytes as bnb
 
 from olmo_core.distributed.checkpoint import unshard_checkpoint
-from olmo_core.nn.transformer.config import TransformerConfig, TransformerBlockType, MemoryConfig, TransformerBlockConfig, TransformerType
+from olmo_core.nn.transformer.config import TransformerConfig, TransformerBlockType, TransformerBlockConfig, TransformerType
 from olmo_core.nn.attention import SlidingWindowAttentionConfig
 from olmo_core.distributed.checkpoint import load_model_and_optim_state
 from olmo_core.data.tokenizer import TokenizerConfig
+from olmo_core.memory_config import MemoryConfig
 
 
 # PREREQ: run the following in the root of the repo, uses repo's built-in HF converter
@@ -341,8 +342,8 @@ else:
 
         
     def train_model_test(verbose=False, use_checkpoint=False, cpu_offload=False, train_str=train_str):
-        # Run two training configurations
-        for train_mode in ["memory_only", "full_model"]:
+        # Run two training configurations ["memory_only", "full_model"]
+        for train_mode in ["full_model"]:
             # Configure parameters to train
             only_train_memory = (train_mode == "memory_only")
             num_trainable_params = configure_training_parameters(model, only_train_memory=only_train_memory, verbose=verbose)
