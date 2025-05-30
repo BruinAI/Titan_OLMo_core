@@ -53,35 +53,41 @@ class ParallelMLPs(nn.Module):
     
     @staticmethod
     @torch.compile()
-    def element_wise_scaled_root_excess(g: torch.Tensor, alpha=5, eps=1e-8) -> torch.Tensor:
+    def orthonormality_regularization(weight: torch.Tensor, lambda_ortho=0.005) -> torch.Tensor:
         """
-        Apply the scaled root excess transformation element-wise to each value in the tensor.
-        Formula for each element x: 2 * alpha * (sqrt(1 + |x| / (alpha + eps)) - 1) * sign(x)
+        Apply orthonormality regularization to the weight matrix.
+        This function applies a correction to the weight matrix to encourage orthonormality.
         """
-        if g is None:
-            return g
-        
-        # Get the signs of each element
-        signs = torch.sign(g)
-        
-        # Get absolute values
-        abs_values = torch.abs(g)
-        
-        # Apply the transformation element-wise
-        transformed = 2 * alpha * (torch.sqrt(1 + abs_values / (alpha + eps)) - 1)
-        
-        # Restore the original signs
-        return transformed * signs
+        d_in, d_out = weight.shape
+        if min(d_in, d_out) > 1:  # Only apply to matrices where orthonormality makes sense
+            # Choose appropriate orthonormality based on matrix shape
+            if d_out <= d_in:
+                # Column orthonormality: W^T W = I
+                weight_product = torch.matmul(weight.T, weight)
+                identity = torch.eye(d_out, device=weight.device)
+            else:
+                # Row orthonormality: W W^T = I
+                weight_product = torch.matmul(weight, weight.T)
+                identity = torch.eye(d_in, device=weight.device)
+            deviation = weight_product - identity  # Calculate deviation from orthonormality
+            # Apply a small correction toward orthonormality
+            # Using the gradient: 4W(W^T W - I) for column-wise
+            if d_out <= d_in:  # Column orthonormality correction
+                ortho_correction = 4 * lambda_ortho * torch.matmul(weight, deviation)
+            else:  # Row orthonormality correction
+                ortho_correction = 4 * lambda_ortho * torch.matmul(deviation, weight)
+            # Apply the correction
+            return weight - ortho_correction
+        else:
+            return weight  # No correction needed for 1D or scalar weights
 
-    # def forward(self, x: torch.Tensor) -> torch.Tensor:
-    #     if x.shape[0] != len(self.mlps):
-    #         raise ValueError(
-    #             f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}"
-    #         )
-    #     outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
-    #     return torch.stack(outputs, dim=0) + x  # residual connection
-    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.shape[0] != len(self.mlps):
+            raise ValueError(f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}")
+        outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])]
+        return torch.stack(outputs, dim=0) + x  # residual connection
+    
+    def forward_verbose(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[0] != len(self.mlps):
             raise ValueError(f"Input batch size {x.shape[0]} must match the number of MLPs {len(self.mlps)}")
         
@@ -91,67 +97,30 @@ class ParallelMLPs(nn.Module):
         if torch.isinf(x).any():
             raise ValueError("Input x contains Inf")
         
-        # Check for extreme values that might cause numerical issues
-        x_min, x_max = x.min(), x.max()
-        if x_max > 1e10 or x_min < -1e10:
-            print(f"WARNING: Input x has extreme values: min={x_min}, max={x_max}")
-        
+        def output_activation_stats(x: torch.Tensor):
+            min, max, mean, std, norm = x.min(), x.max(), x.mean(), x.std(), x.norm()
+            if x.isnan().any(): raise ValueError("Output contains NaN values")
+            if x.isinf().any(): raise ValueError("Output contains Inf values")
+            output = f"min={min:.4f}, max={max:.4f}, mean={mean:.4f}, std={std:.4f}, norm={norm:.4f}"
+            print(output)
+
         outputs = []
         for i in range(x.shape[0]):
             single_input = x[i]
-            
-            # Debug single input
-            if torch.isnan(single_input).any():
-                raise ValueError(f"Input x[{i}] contains NaN")
-            if torch.isinf(single_input).any():
-                raise ValueError(f"Input x[{i}] contains Inf")
-                
-            try:
-                single_output = self.mlps[i](single_input)
-                
-                # Debug single output
-                if torch.isnan(single_output).any():
-                    print(f"ERROR: MLP {i} produced NaN output")
-                    print(f"  Input stats: min={single_input.min()}, max={single_input.max()}, mean={single_input.mean()}, std={single_input.std()}")
-                    
-                    # Debug each layer in the MLP
-                    temp_x = single_input
-                    for j, layer in enumerate(self.mlps[i]):
-                        temp_x = layer(temp_x)
-                        if torch.isnan(temp_x).any():
-                            print(f"  Layer {j} ({type(layer).__name__}) produced NaN")
-                            print(f"    Input to this layer: min={temp_x.min()}, max={temp_x.max()}")
-                            break
-                        else:
-                            print(f"  Layer {j} ({type(layer).__name__}) OK: min={temp_x.min()}, max={temp_x.max()}")
-                    
-                    raise ValueError(f"MLP {i} produced NaN output")
-                
-                if torch.isinf(single_output).any():
-                    raise ValueError(f"MLP {i} produced Inf output")
-                    
-                outputs.append(single_output)
-                
-            except Exception as e:
-                print(f"Error in MLP {i}: {e}")
-                print(f"  Input shape: {single_input.shape}")
-                print(f"  Input stats: min={single_input.min()}, max={single_input.max()}")
-                raise
-        
+            print(f"MLP {i}:")
+            print("Input: ", end='')
+            output_activation_stats(single_input)
+            # Debug each layer in the MLP
+            temp_x = single_input
+            for j, layer in enumerate(self.mlps[i]):  # type ignore
+                temp_x = layer(temp_x)
+                layer_type = type(layer).__name__
+                print(f"Layer {j}, {layer_type} output: ", end='')
+                output_activation_stats(temp_x)
+
+            outputs.append(temp_x)
         stacked_outputs = torch.stack(outputs, dim=0)
-        
-        # Debug the residual connection
-        if torch.isnan(stacked_outputs).any():
-            raise ValueError("Stacked outputs contain NaN before residual")
-        
         final_output = stacked_outputs + x
-        
-        if torch.isnan(final_output).any():
-            print("ERROR: Final output contains NaN after residual connection")
-            print(f"  stacked_outputs stats: min={stacked_outputs.min()}, max={stacked_outputs.max()}")
-            print(f"  x stats: min={x.min()}, max={x.max()}")
-            raise ValueError("Final output contains NaN after residual connection")
-        
         return final_output
     
     @torch.compile()
@@ -215,7 +184,7 @@ class ParallelMLPs(nn.Module):
             # ================================================================
             p_T, q_T, A_T, B_coeffs, D_coeffs = self.calculate_coeffs(beta_vecs, eta_vecs, theta_vecs)
 
-            if ckpt_memory:
+            if ckpt_memory and False:
                 # Using checkpointing to save memory (recomputes forward pass during back-prop instead of storing all activations)
                 def _fwd(keys):
                     return functional_call(self, current_params, keys)
@@ -226,21 +195,19 @@ class ParallelMLPs(nn.Module):
             # assert not torch.isnan(outputs).any(), "Outputs contain NaN values, which is unexpected."
             # assert not torch.isinf(outputs).any(), "Outputs contain NaN or Inf values, which is unexpected."
             sqerr = (outputs - values).pow(2)  # squared error
-            #if not self.training:
-            #    print(outputs, values)
+            #if not self.training: print(outputs, values)
             
             input_params = tuple(current_params.values())
             mem_grads = torch.autograd.grad(
                 outputs=sqerr, inputs=input_params, grad_outputs=B_coeffs.expand_as(sqerr), 
                 allow_unused=True, retain_graph=True
             )
-            
-            
+
             surp_grads = torch.autograd.grad(
-                outputs=sqerr, inputs=input_params, grad_outputs=D_coeffs.expand_as(sqerr), 
+                outputs=sqerr, inputs=input_params, grad_outputs=D_coeffs.expand_as(sqerr),
                 allow_unused=True
             )
-            
+
             if audit_grad:
                 # Log L2 norm of mem_grads
                 mem_grad_norms = []
@@ -275,14 +242,13 @@ class ParallelMLPs(nn.Module):
             # clip norms
             clip_mem_g = 4
             clip_sur_g = 10
-            clip_w = 80
-            # orthonormality coefficient
-            ortho_lambda = 0.005
+            ortho_lambda = 0.005  # orthonormality coefficient
+            clamp_w = 1e2
 
             # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
             # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
-            mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
-            surp_grads = [self.scaled_root_excess_norm(g, clip_sur_g) if g is not None else g for g in surp_grads]
+            # mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
+            # surp_grads = [self.scaled_root_excess_norm(g, clip_sur_g) if g is not None else g for g in surp_grads]
 
             # p_T * M_0 + A_T[idx] * S_0 + gradient_term
             def update_param(name, grad):
@@ -294,38 +260,11 @@ class ParallelMLPs(nn.Module):
                 # M_T (param) = p_T·M_0 + A_T·S_0 − Σ_j θ·B_{T,j}·u_j
                 orig_weight_coeff = p_T[idx] * self.l2_factor
                 new_param = orig_weight_coeff * orig_param + A_T[idx] * surprise - grad
-                
-                #Apply orthonormality regularization for weight matrices
-                if 'weight' in name and len(new_param.shape) == 2:
-                    weight = new_param
-                    d_in, d_out = weight.shape
-                    
-                    # Only apply to matrices where orthonormality makes sense
-                    if min(d_in, d_out) > 1:
-                        # Choose appropriate orthonormality based on matrix shape
-                        if d_out <= d_in:  # Column orthonormality: W^T W = I
-                            weight_product = torch.matmul(weight.T, weight)
-                            identity = torch.eye(d_out, device=weight.device)
-                        else:  # Row orthonormality: W W^T = I
-                            weight_product = torch.matmul(weight, weight.T)
-                            identity = torch.eye(d_in, device=weight.device)
-                        
-                        # Calculate deviation from orthonormality
-                        deviation = weight_product - identity
-                        
-                        # Apply a small correction toward orthonormality
-                        # Using the gradient: 4W(W^T W - I) for column-wise
-                        
-                        if d_out <= d_in:  # Column orthonormality correction
-                            ortho_correction = 4 * ortho_lambda * torch.matmul(weight, deviation)
-                        else:  # Row orthonormality correction
-                            ortho_correction = 4 * ortho_lambda * torch.matmul(deviation, weight)
-                        
-                        # Apply the correction
-                        new_param = weight - ortho_correction
-                
-                # Apply clipping as in the original code
-                return new_param.detach().clamp(-clip_w, clip_w).requires_grad_(True)
+                # # Apply orthonormality regularization for weight matrices
+                # if 'weight' in name and len(new_param.shape) == 2:
+                #     new_param = self.orthonormality_regularization(new_param, ortho_lambda)
+                print(f"Updating param {name} with norm: {orig_param.norm().item()}, grad norm: {grad.norm().item()}")
+                return new_param.detach().clamp(-clamp_w, clamp_w).requires_grad_(True)
 
             # q_T * S_0 - Σ_j θ·D_{T,j}·u_j
             def update_surprise(name, grad):
@@ -335,7 +274,8 @@ class ParallelMLPs(nn.Module):
                 old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))
                 # S_T (surprise) = q_T·S_0 − Σ_j θ·D_{T,j}·u_j
                 new_surprise = q_T[idx] * old_surprise - grad
-                return new_surprise.detach().clamp(-clip_w, clip_w)
+                # print(f"Updating param {name} with norm: {old_surprise.norm().item()}, update norm: {grad.norm().item()}")
+                return new_surprise.detach().clamp(-clamp_w, clamp_w)
 
             new_params = {
                 name: update_param(name, grad)
@@ -377,8 +317,9 @@ class NeuralMemory(nn.Module):
     2. but has shared, learned K and V matrices ad 
     """
 
-    def __init__(self, emb_dim = 16, n_layers = 2, 
-                 hidden_dim = 32, nu = 0.01, l2_memory_weight = 0.05,
+    def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32,
+                 nu = 0.01, l2_memory_weight = 0.00,
+                 alpha_scale=0.01, eta_scale=0.1, theta_scale=3e-4,
                  use_global_sw = False, num_global_tokens = 0,
                  use_conv=False, retrieve_layer=True,
                  audit_grad=False):
@@ -395,6 +336,9 @@ class NeuralMemory(nn.Module):
         self.mlp_reset = True
         self.nu = nu
         self.l2_memory_weight = l2_memory_weight
+        self.alpha_scale = alpha_scale
+        self.eta_scale = eta_scale
+        self.theta_scale=theta_scale
         self.use_conv = use_conv
         self.retrieve_layer = retrieve_layer
         self.audit_grad = audit_grad
@@ -419,11 +363,13 @@ class NeuralMemory(nn.Module):
         torch.nn.init.normal_(self.eta.weight, mean=0.0, std=0.02)
         torch.nn.init.normal_(self.theta.weight, mean=0.0, std=0.02)
 
-        # Initialize bias terms to -4.5 (sigmoid(-3.5)=0.01)
         with torch.no_grad():
-            self.alpha.bias.fill_(-3) # alpha needs to be close to 0: beta = 1 - alpha close to 1
-            self.eta.bias.fill_(2) # eta needs to be close to 1 for proper momentum
-            self.theta.bias.fill_(-5) # theta needs to be close to 0 for low learning rate
+            self.alpha.bias.fill_(0)
+            self.eta.bias.fill_(0)
+            self.theta.bias.fill_(0)
+            # self.alpha.bias.fill_(-3) # alpha needs to be close to 0: beta = 1 - alpha close to 1
+            # self.eta.bias.fill_(2) # eta needs to be close to 1 for proper momentum
+            # self.theta.bias.fill_(-4.5) # theta needs to be close to 0 for low learning rate, -4.5 (sigmoid(-3.5)=0.01)
 
         self.silu = nn.SiLU()
         self.sigmoid = nn.Sigmoid()
@@ -460,13 +406,13 @@ class NeuralMemory(nn.Module):
             layers: List[nn.Module] = [nn.Linear(self.emb_dim, self.emb_dim)]
         else:
             layers: List[nn.Module] = [
-                nn.Linear(self.emb_dim, self.hidden_dim),
+                nn.Linear(self.emb_dim, self.hidden_dim, bias=False),
                 nn.LayerNorm(self.hidden_dim),
                 nn.SiLU(),
             ]
             for k in range(self.n_layers - 2):
                 layers += [
-                    nn.Linear(self.hidden_dim, self.hidden_dim),
+                    nn.Linear(self.hidden_dim, self.hidden_dim, bias=False),
                     nn.LayerNorm(self.hidden_dim),
                     nn.SiLU(),
                 ]
@@ -566,9 +512,9 @@ class NeuralMemory(nn.Module):
         values = F.normalize(values, eps=1e-8)
 
         # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
-        beta_vec = 1 - self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
-        eta_vec = self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
-        theta_vec = self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)
+        beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
+        eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
+        theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)
 
         self.surprise, losses, next_mlp_params = self.mlps_processor.update_memory(  # type: ignore
             self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec, audit_grad = self.audit_grad
@@ -609,7 +555,8 @@ class NeuralMemory(nn.Module):
                         torch.nn.init.ones_(new_param.data)  # LayerNorm weight (gamma)
                     elif isinstance(parent_module, nn.Linear):
                         # Kaiming He initialization for Linear layers
-                        torch.nn.init.kaiming_normal_(new_param.data, mode='fan_in', nonlinearity='relu')
+                        # torch.nn.init.kaiming_normal_(new_param.data, mode='fan_in', nonlinearity='relu')
+                        torch.nn.init.xavier_normal_(new_param.data, gain=1.0)  # Xavier initialization
                         # Alternative: torch.nn.init.normal_(new_param.data, mean=0, std=0.02)
                     else:
                         # Fallback for other types of weights if MLP structure changes

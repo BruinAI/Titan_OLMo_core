@@ -69,7 +69,7 @@ train_str = """The quick brown fox jumps over the lazy dog. The cat sat on the m
                 a much more cruel place. Because taxes."""
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
-MEMORY_LAYERS = [3,11,]  # every 4th layer
+MEMORY_LAYERS = [3]#, 7, 11, 15]  # every 4th layer
 
 if sys.platform.startswith("darwin"):  # if macos, remove this when flash attn is deprecated
     USE_SW = False
