@@ -1,3 +1,4 @@
+from mypy.main import b
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -50,6 +51,28 @@ class ParallelMLPs(nn.Module):
         norm = g.norm()
         final_norm = 2 * alpha * (torch.sqrt(1 + norm / (alpha + eps)) - 1)
         return g * (final_norm / (norm + eps)) if norm > 0 else g
+    
+    @staticmethod
+    @torch.compile()
+    def element_wise_scaled_root_excess(g: torch.Tensor, alpha=5, eps=1e-8) -> torch.Tensor:
+        """
+        Apply the scaled root excess transformation element-wise to each value in the tensor.
+        Formula for each element x: 2 * alpha * (sqrt(1 + |x| / (alpha + eps)) - 1) * sign(x)
+        """
+        if g is None:
+            return g
+        
+        # Get the signs of each element
+        signs = torch.sign(g)
+        
+        # Get absolute values
+        abs_values = torch.abs(g)
+        
+        # Apply the transformation element-wise
+        transformed = 2 * alpha * (torch.sqrt(1 + abs_values / (alpha + eps)) - 1)
+        
+        # Restore the original signs
+        return transformed * signs
 
     # def forward(self, x: torch.Tensor) -> torch.Tensor:
     #     if x.shape[0] != len(self.mlps):
@@ -128,7 +151,7 @@ class ParallelMLPs(nn.Module):
         return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
     # @torch.compile()
-    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=True):
+    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=False, audit_grad=True):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
             
@@ -167,21 +190,19 @@ class ParallelMLPs(nn.Module):
             # assert not torch.isnan(outputs).any(), "Outputs contain NaN values, which is unexpected."
             # assert not torch.isinf(outputs).any(), "Outputs contain NaN or Inf values, which is unexpected."
             sqerr = (outputs - values).pow(2)  # squared error
-            #if not self.training:
-            #    print(outputs, values)
+            #if not self.training: print(outputs, values)
             
             input_params = tuple(current_params.values())
             mem_grads = torch.autograd.grad(
                 outputs=sqerr, inputs=input_params, grad_outputs=B_coeffs.expand_as(sqerr), 
                 allow_unused=True, retain_graph=True
             )
-            
-            
+
             surp_grads = torch.autograd.grad(
-                outputs=sqerr, inputs=input_params, grad_outputs=D_coeffs.expand_as(sqerr), 
+                outputs=sqerr, inputs=input_params, grad_outputs=D_coeffs.expand_as(sqerr),
                 allow_unused=True
             )
-            
+
             if audit_grad:
                 # Log L2 norm of mem_grads
                 mem_grad_norms = []
@@ -214,10 +235,11 @@ class ParallelMLPs(nn.Module):
                 print(f"D_coeffs stats - Min: {D_coeffs.min().item():.6f}, Max: {D_coeffs.max().item():.6f}, Mean: {D_coeffs.mean().item():.6f}")
 
             # clip norms
-            clip_mem_g = 5
+            clip_mem_g = 4
             clip_sur_g = 10
-            clip_w = 20
-            
+            clip_w = 80
+            ortho_lambda = 0.005  # orthonormality coefficient
+
             # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
             # mem_grads = [nn.utils.clip_grad_norm_(g, clip_g) if g is not None else g for g in mem_grads]
             mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
@@ -233,6 +255,35 @@ class ParallelMLPs(nn.Module):
                 # M_T (param) = p_T·M_0 + A_T·S_0 − Σ_j θ·B_{T,j}·u_j
                 orig_weight_coeff = p_T[idx] * self.l2_factor
                 new_param = orig_weight_coeff * orig_param + A_T[idx] * surprise - grad
+                
+                #Apply orthonormality regularization for weight matrices
+                if 'weight' in name and len(new_param.shape) == 2:
+                    weight = new_param
+                    d_in, d_out = weight.shape
+                    
+                    # Only apply to matrices where orthonormality makes sense
+                    if min(d_in, d_out) > 1:
+                        # Choose appropriate orthonormality based on matrix shape
+                        if d_out <= d_in:  # Column orthonormality: W^T W = I
+                            weight_product = torch.matmul(weight.T, weight)
+                            identity = torch.eye(d_out, device=weight.device)
+                        else:  # Row orthonormality: W W^T = I
+                            weight_product = torch.matmul(weight, weight.T)
+                            identity = torch.eye(d_in, device=weight.device)
+                        
+                        deviation = weight_product - identity  # Calculate deviation from orthonormality
+                        
+                        # Apply a small correction toward orthonormality
+                        # Using the gradient: 4W(W^T W - I) for column-wise
+                        if d_out <= d_in:  # Column orthonormality correction
+                            ortho_correction = 4 * ortho_lambda * torch.matmul(weight, deviation)
+                        else:  # Row orthonormality correction
+                            ortho_correction = 4 * ortho_lambda * torch.matmul(deviation, weight)
+                        
+                        # Apply the correction
+                        new_param = weight - ortho_correction
+                
+                # Apply clipping as in the original code
                 return new_param.detach().clamp(-clip_w, clip_w).requires_grad_(True)
 
             # q_T * S_0 - Σ_j θ·D_{T,j}·u_j
@@ -356,6 +407,7 @@ class NeuralMemory(nn.Module):
             torch.nn.init.normal_(self.persistent_tokens, mean=0.0, std=0.1)
 
         self.surprise = {}
+        
 
     def build_mlp(self):
         """
@@ -367,14 +419,14 @@ class NeuralMemory(nn.Module):
             layers: List[nn.Module] = [nn.Linear(self.emb_dim, self.emb_dim)]
         else:
             layers: List[nn.Module] = [
-                nn.Linear(self.emb_dim, self.hidden_dim),
-                # nn.LayerNorm(self.hidden_dim),
+                nn.Linear(self.emb_dim, self.hidden_dim, bias=False),
+                nn.LayerNorm(self.hidden_dim),
                 nn.SiLU(),
             ]
             for k in range(self.n_layers - 2):
                 layers += [
-                    nn.Linear(self.hidden_dim, self.hidden_dim),
-                    # nn.LayerNorm(self.hidden_dim),
+                    nn.Linear(self.hidden_dim, self.hidden_dim, bias=False),
+                    nn.LayerNorm(self.hidden_dim),
                     nn.SiLU(),
                 ]
             layers.append(nn.Linear(self.hidden_dim, self.emb_dim))
@@ -559,6 +611,7 @@ class NeuralMemory(nn.Module):
                     if not torch.isfinite(param).all():
                         raise ValueError(f"Parameter {name} contains NaN or Inf values.")
 
+                    param = param.clamp(-10, 10)  # Simple value clipping
                     if clean_name not in mlp_sums:
                         mlp_sums[clean_name] = param.detach().clone()  # initializing with clone for running sum
                     else:
