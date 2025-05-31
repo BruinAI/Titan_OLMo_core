@@ -7,6 +7,7 @@ import torch.nn as nn
 from ..config import DType
 from .config import OptimConfig
 from .skip_step_optimizer import SkipStepOptimizer
+import bitsandbytes as bnb
 
 
 def adamw_step(
@@ -131,6 +132,53 @@ class AdamWConfig(OptimConfig):  # NOTE: omagaconf doesn't like "OptimConfig[tor
     @classmethod
     def optimizer(cls) -> Type[torch.optim.AdamW]:
         return torch.optim.AdamW
+    
+    
+@dataclass
+class BNBAdamWConfig(OptimConfig):
+    """
+    Configuration class for building a BitAndBytes 8-bit AdamW optimizer.
+    """
+    lr: float = 1e-3
+    betas: Tuple[float, float] = (0.9, 0.999)
+    eps: float = 1e-8
+    weight_decay: float = 1e-2
+    optim_bits: int = 8
+    is_paged: bool = True
+    min_8bit_size: int = 128
+    foreach: Optional[bool] = None
+    fused: Optional[bool] = None
+
+    @classmethod
+    def optimizer(cls) -> Type[bnb.optim.AdamW8bit]:
+        return bnb.optim.AdamW8bit
+    
+    def build(self, model: nn.Module, strict: bool = True) -> bnb.optim.AdamW8bit:
+        """
+        Build the optimizer with appropriate parameters for BitAndBytes.
+        """
+        kwargs = self.as_dict()
+        # Remove parameters not used by OptimConfig.build_groups
+        group_overrides = kwargs.pop("group_overrides", None)
+        compile_opt = kwargs.pop("compile", None)
+        fixed_fields = kwargs.pop("fixed_fields", None)
+        
+        # Build parameter groups
+        param_groups = self.build_groups(model, strict=strict)
+        
+        # Create the optimizer with the appropriate parameters
+        optim = self.optimizer()(
+            param_groups,
+            lr=kwargs.pop("lr"),
+            betas=kwargs.pop("betas"),
+            eps=kwargs.pop("eps"),
+            weight_decay=kwargs.pop("weight_decay"),
+            optim_bits=kwargs.pop("optim_bits"),
+            is_paged=kwargs.pop("is_paged"),
+            min_8bit_size=kwargs.pop("min_8bit_size", 128)
+        )
+        
+        return optim
 
 
 @dataclass

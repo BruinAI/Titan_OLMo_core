@@ -1,6 +1,7 @@
 import math
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union, cast
+from typing import TYPE_CHECKING, Dict, Optional, Tuple, Union, cast, List
+import logging
 
 import torch
 import torch.nn as nn
@@ -230,6 +231,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         )
         self.sigmoid = nn.Sigmoid()
         self.gate_cache = None
+        self.chunk_losses_this_forward: List[float] = []
 
     def forward(
         self,
@@ -393,7 +395,6 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             raise
 
     def train_forward(self, x: torch.Tensor, *, loss_div_factor: Optional[Union[torch.Tensor, float]] = None, **kwargs) -> torch.Tensor:
-        print('=========== STARTED TRAIN FORWARD =====================')
         del loss_div_factor
         # initializing the memory for this batch
         if self.memory.mlps_processor is None:
@@ -402,6 +403,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             self.memory.reset_mlps()
             
         # iterating through the input in chunks
+        self.chunk_losses_this_forward = []
         gates = []  # list to store the gates (avoid redundant computation)
         for i in range(1 + ((x.size(1) - 1) // self.chunk_size)):
             start = i * self.chunk_size
@@ -409,7 +411,8 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             chunk_x = x[:, start:end, :]
             
             _loss = self.memory.update(chunk_x)
-            print(f"Chunk {i}: Loss = {_loss.item()}")
+            self.chunk_losses_this_forward.append(_loss.item())
+            #print(f"Chunk {i}: Loss = {_loss.item()}")
             gate = self.memory.retrieve(chunk_x)
             gates.append(gate)
             self.memory.print_mlp_state_stats()

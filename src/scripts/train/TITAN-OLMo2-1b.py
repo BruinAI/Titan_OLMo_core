@@ -6,12 +6,48 @@ This script implements a two-phase training approach:
 
 Adapted for single GPU local training without Beaker
 """
-
+import numpy as np
 import logging
 import os
 import sys
 from dataclasses import dataclass, field
 from typing import List, Optional, cast, Dict, Any
+import copy  # Add this import at the top of the file with other imports
+
+from tqdm import tqdm
+from pathlib import Path
+import wandb
+from olmo_core.nn.transformer.block import MAGReorderedNormTransformerBlock
+from olmo_core.train.callbacks import Callback # Ensure Callback is imported
+from olmo_core.train.trainer import Trainer # For type hinting
+from olmo_core.train.train_module import TrainModule # For type hinting
+import types # For MethodType
+
+
+if "olmo_core" not in sys.path:
+    sys.path.append("..")
+if not os.getcwd().endswith("src/scripts"):  # for VS Code debugging
+    os.chdir("src/scripts")
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # to avoid warnings
+
+# Environment variables for Torch Compile -> Torch Inductor -> Torch Dynamo -> Triton and/or LLVM
+# MUST HAVE Triton (if using GPU) and LLVM installed
+if sys.platform == "darwin":  # if macOS
+    os.environ["PATH"] = "/opt/homebrew/opt/llvm/bin:" + os.environ["PATH"]
+    os.environ["LDFLAGS"] = "-L/opt/homebrew/opt/llvm/lib"
+    os.environ["CPPFLAGS"] = "-I/opt/homebrew/opt/llvm/include"
+
+import torch
+from torch.profiler import profile, ProfilerActivity
+from transformers import AutoTokenizer
+import bitsandbytes as bnb
+
+from olmo_core.distributed.checkpoint import unshard_checkpoint
+from olmo_core.nn.transformer.config import TransformerConfig, TransformerBlockType, TransformerBlockConfig, TransformerType
+from olmo_core.nn.attention import SlidingWindowAttentionConfig
+from olmo_core.distributed.checkpoint import load_model_and_optim_state
+from olmo_core.data.tokenizer import TokenizerConfig
+from olmo_core.memory_config import MemoryConfig
 
 from olmo_core.config import Config, DType
 from olmo_core.data import (
@@ -22,9 +58,11 @@ from olmo_core.data import (
 )
 from olmo_core.distributed.parallel import DataParallelType
 from olmo_core.nn.transformer import TransformerConfig, TransformerBlockType
+
 from olmo_core.nn.attention import SlidingWindowAttentionConfig
 from olmo_core.memory_config import MemoryConfig
-from olmo_core.optim import AdamWConfig, CosWithWarmup, OptimGroupOverride
+from olmo_core.optim import CosWithWarmup, OptimGroupOverride
+from olmo_core.optim.adamw import BNBAdamWConfig
 from olmo_core.train import (
     TrainerConfig,
     prepare_cli_environment,
@@ -46,8 +84,6 @@ import bitsandbytes as bnb
 
 from olmo_core.train.callbacks import WandBCallback
 
-from olmo_core.train.callbacks import Callback
-
 log = logging.getLogger(__name__)
 
 #######################
@@ -55,28 +91,35 @@ log = logging.getLogger(__name__)
 #######################
 
 # Phase configuration
-PHASE = "memory_only"  # "memory_only" or "full_model"
+# At the top of the file, change this line
+PHASE = "full_model"  # Change from "memory_only" to "full_model"
+CHECKPOINT = None  # Make sure this is None for a fresh start
 
 # Set this if you want to start training from an existing checkpoint
 CHECKPOINT: Optional[str] = None
 
 # Data configuration
+# Path to your manifest file listing .npy data shards
+DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/dolmino6b_sample.txt"
+
+# Base prefix for the data shards listed in the manifest.
+# If your .npy files are hosted, this would be the base HTTP/S3 URL.
+# Example: BASE_DATA_PREFIX = "http://olmo-data.org"
+# If they are local, this would be the root directory where the 'preprocessed/...' structure exists.
+# Example: BASE_DATA_PREFIX = "/ssd/karen/olmo_data" # Ensure this path exists if local
+# FIXME: PLEASE SET THIS TO THE CORRECT PREFIX FOR YOUR DATA:
+BASE_DATA_PREFIX: str = "http://olmo-data.org" # Defaulting to HTTP, adjust if your data is local
+
 SEQUENCE_LENGTH = 1024  # Limited to 1024 tokens as specified
-TOKENIZER_CONFIG = TokenizerConfig.dolma2()
-
-# Use data from dolmino6b_sample.txt
-DATA_PATHS: List[str] = [
-    "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/dolmino6b_sample.txt"
-]
-
-# For single GPU, we can use a slightly larger batch size
-BATCH_SIZE = 4  # Increased from 2 for single GPU efficiency
-RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
-GLOBAL_BATCH_SIZE = RANK_MICROBATCH_SIZE
 INTRA_DOCUMENT_MASKING = False
 
+# For single GPU, we can use a slightly larger batch size
+BATCH_SIZE = 3  # Increased from 2 for single GPU efficiency
+RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
+GLOBAL_BATCH_SIZE = RANK_MICROBATCH_SIZE
+
 # Memory configuration
-MEMORY_LAYERS = [3, 7, 11, 15]  # Every 4th layer
+MEMORY_LAYERS = [3,7,11,15]  # Every 4th layer
 USE_SLIDING_WINDOW = True
 WINDOW_SIZE = 512
 PERSISTENT_MEM_LEN = 4  # Number of persistent memory tokens
@@ -85,9 +128,12 @@ N_LAYERS = 2  # Number of layers in memory component
 HIDDEN_DIM_MULTIPLE = 1  # Multiple for memory hidden dimension
 
 # WandB configuration
-WANDB_PROJECT = "titan-olmo-training"  # Your WandB project name
-WANDB_ENTITY = "your-entity"  # Your WandB username or organization
+WANDB_PROJECT = "Titan_OLMo"  # Your WandB project name
+WANDB_ENTITY = "k_moss"  # Your WandB username or organization
 WANDB_RUN_NAME = None  # Set to None to use the run_name parameter
+
+TOKENIZER_CONFIG = TokenizerConfig.dolma2()
+
 
 # Configure memory settings
 memory_config = MemoryConfig(
@@ -129,35 +175,76 @@ class TitanExperimentConfig(Config):
     window_size: int = WINDOW_SIZE
 
 def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
+    # Initialize TOKENIZER_CONFIG
+    tokenizer_config = TokenizerConfig.dolma2()
+
+    # Parse the manifest file to get actual data paths
+    actual_data_paths: List[str] = []
+    log.info(f"Attempting to read data manifest from: {DATA_MANIFEST_PATH}")
+    log.info(f"Using data base prefix: {BASE_DATA_PREFIX}")
+    try:
+        with open(DATA_MANIFEST_PATH, "r") as f:
+            for line_num, line_content in enumerate(f):
+                line_content = line_content.strip()
+                if line_content and not line_content.startswith("#") and line_content.endswith(".npy"):
+                    if BASE_DATA_PREFIX.endswith('/'):
+                        full_path = f"{BASE_DATA_PREFIX}{line_content}"
+                    else:
+                        full_path = f"{BASE_DATA_PREFIX}/{line_content}"
+                    actual_data_paths.append(full_path)
+    except FileNotFoundError:
+        log.error(f"Manifest file not found: {DATA_MANIFEST_PATH}")
+        raise
+    except Exception as e:
+        log.error(f"Error reading manifest file {DATA_MANIFEST_PATH}: {e}")
+        raise
+
+    if not actual_data_paths:
+        log.error(
+            f"No .npy files found or parsed from manifest: {DATA_MANIFEST_PATH}. "
+            f"Check manifest content and ensure BASE_DATA_PREFIX ('{BASE_DATA_PREFIX}') is correct."
+        )
+        raise ValueError(f"No .npy files parsed from manifest: {DATA_MANIFEST_PATH}")
+
+    log.info(f"Successfully loaded {len(actual_data_paths)} data paths from manifest {DATA_MANIFEST_PATH}")
+    if actual_data_paths:
+        log.info(f"First few data paths: {actual_data_paths[:3]}")
+
     # Setup dataset configuration
     dataset_config = NumpyDatasetConfig(
-        paths=DATA_PATHS,
+        paths=actual_data_paths, # Use the parsed list of full .npy paths/URLs
         name=NumpyDatasetType.fsl,
         sequence_length=SEQUENCE_LENGTH,
-        tokenizer=TOKENIZER_CONFIG,
-        work_dir=os.path.dirname(DATA_PATHS[0]),
+        tokenizer=tokenizer_config, # Use the initialized tokenizer_config
+        # work_dir should be a local path for caching.
+        # Using a sub-directory in SAVE_DIR is a good practice.
+        work_dir=str(Path(SAVE_DIR) / "dataset_cache"), # Ensure work_dir is a string
         generate_doc_lengths=INTRA_DOCUMENT_MASKING,
     )
 
     data_loader_config = NumpyDataLoaderConfig(
-        global_batch_size=GLOBAL_BATCH_SIZE,
-        seed=34521,
+        global_batch_size=GLOBAL_BATCH_SIZE, # Ensure GLOBAL_BATCH_SIZE is defined
+        seed=34521, # Consider making this part of TitanExperimentConfig or a global
         num_workers=2,  # Reduced for single GPU
+        # Add other NumpyDataLoaderConfig parameters as needed from your original setup
+        prefetch_factor=2 if 2 > 0 else None, # Example, assuming NUM_WORKERS = 2
     )
 
     kwargs = {}
     
-    # Configure for specific memory layers
+    # Apply only to specific layers
     kwargs["block_name"] = TransformerBlockType.reordered_norm
     block_overrides = {}
     
     # Create block configs for specific memory layers
     for layer_idx in MEMORY_LAYERS:
-        block_overrides[layer_idx] = {
-            "name": TransformerBlockType.mag_reordered_norm,
-            "memory_config": memory_config
-        }
-    
+        block_overrides[layer_idx] = TransformerBlockConfig(
+                name=TransformerBlockType.mag_reordered_norm,
+                attention=None,  # Will be filled by the config system
+                layer_norm=None,  # Will be filled by the config system
+                feed_forward=None,  # Will be filled by the config system
+                memory_config=memory_config
+            )
     kwargs["block_overrides"] = block_overrides
 
     # Add sliding window attention if enabled
@@ -170,39 +257,38 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
 
     # Configure the model
     model_config = TransformerConfig.olmo2_1B(
-        vocab_size=TOKENIZER_CONFIG.padded_vocab_size(), 
+        vocab_size=TOKENIZER_CONFIG.padded_vocab_size(),
+        dtype=DType.bfloat16,  # Add this line to ensure model uses bf16
         **kwargs
     )
 
     # Set learning rate based on phase
     current_lr = LEARNING_RATE if PHASE == "memory_only" else FULL_MODEL_LEARNING_RATE
     
-    # Define a custom optimizer function
-    def create_bnb_optimizer(params):
-        return bnb.optim.AdamW8bit(
-            params,
-            lr=current_lr,
-            weight_decay=0.1,
-            betas=(0.9, 0.95),
-            optim_bits=8,
-            is_paged=True
-        )
-
-    # Use the function directly in the train_module_config
-    train_module_config = TransformerTrainModuleConfig(
-        rank_microbatch_size=RANK_MICROBATCH_SIZE,
-        max_sequence_length=dataset_config.effective_sequence_length,
-        optim=create_bnb_optimizer,  # type:ignore
-        compile_model=True,
-        dp_config=TransformerDataParallelConfig(
-            name=DataParallelType.ddp, param_dtype=DType.bfloat16, reduce_dtype=DType.float32
-        ),
-        max_grad_norm=1.0,
-        scheduler=CosWithWarmup(warmup_steps=200),
+    # Create a BNBAdamWConfig instance directly (instead of a function)
+    optim_config = BNBAdamWConfig(
+        lr=current_lr,
+        weight_decay=0.1,
+        betas=(0.9, 0.95),
+        optim_bits=8,
+        is_paged=True
     )
 
+    # Use the config instance in the train_module_config
+    train_module_config = TransformerTrainModuleConfig(
+        rank_microbatch_size=RANK_MICROBATCH_SIZE, # Ensure RANK_MICROBATCH_SIZE is defined
+        max_sequence_length=dataset_config.effective_sequence_length,
+        optim=optim_config,
+        compile_model=True, # Consider making this configurable
+        dp_config=TransformerDataParallelConfig(
+            name=DataParallelType.ddp, 
+            param_dtype=DType.bfloat16, 
+            reduce_dtype=DType.float32,
+        ),
+        max_grad_norm=1.0, # Consider making this configurable
+        scheduler=CosWithWarmup(warmup_steps=200), # Consider making warmup_steps configurable
+    )
 
-    # Configure the trainer for local use
     trainer_config = (
         TrainerConfig(
             save_folder=f"{SAVE_DIR}/{run_name}",
@@ -222,11 +308,11 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
         .with_callback(
                 "wandb",
                 WandBCallback(
-                    name=WANDB_RUN_NAME or run_name,
-                    entity=WANDB_ENTITY,
-                    project=WANDB_PROJECT,
+                    name=WANDB_RUN_NAME or run_name, # Ensure WANDB_RUN_NAME defined
+                    entity=WANDB_ENTITY, # Ensure WANDB_ENTITY defined
+                    project=WANDB_PROJECT, # Ensure WANDB_PROJECT defined
                     cancel_check_interval=10,
-                    enabled=True,
+                    enabled=True, # Consider making this configurable
                 ),
             )
         .with_callback("config_saver", ConfigSaverCallback())
@@ -234,31 +320,32 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
     )
     
     class StepLimitCallback(Callback):
-        def __init__(self, max_steps):
+        def __init__(self):
             super().__init__()
-            self.max_steps = max_steps
+            # Use the global MEMORY_ONLY_STEPS defined at the top of the script
+            self.max_steps = MEMORY_ONLY_STEPS # Ensure MEMORY_ONLY_STEPS is defined
             
         def on_train_batch_end(self, trainer, *args, **kwargs):
             if trainer.step >= self.max_steps:
                 trainer.should_stop = True
     
-    if config.phase == "memory_only":
+    if PHASE == "memory_only": # Ensure PHASE is defined
         trainer_config = trainer_config.with_callback(
-            "step_limit", StepLimitCallback(config.memory_only_steps)
+            "step_limit", 
+            StepLimitCallback
         )
 
-    # Build and return config
     return TitanExperimentConfig(
         model=model_config,
         dataset=dataset_config,
         data_loader=data_loader_config,
         train_module=train_module_config,
         trainer=trainer_config,
-        phase=PHASE,
-        memory_only_steps=MEMORY_ONLY_STEPS,
-        memory_layers=MEMORY_LAYERS,
-        use_sliding_window=USE_SLIDING_WINDOW,
-        window_size=WINDOW_SIZE,
+        phase=PHASE, # Ensure PHASE is defined
+        memory_only_steps=MEMORY_ONLY_STEPS, # Ensure MEMORY_ONLY_STEPS is defined
+        memory_layers=MEMORY_LAYERS, # Ensure MEMORY_LAYERS is defined
+        use_sliding_window=USE_SLIDING_WINDOW, # Ensure USE_SLIDING_WINDOW is defined
+        window_size=WINDOW_SIZE, # Ensure WINDOW_SIZE is defined
     ).merge(overrides)
 
 def configure_training_parameters(model, only_train_memory=True):
@@ -299,7 +386,10 @@ def configure_training_parameters(model, only_train_memory=True):
 def train(config: TitanExperimentConfig):
     # Set RNG states on all devices
     seed_all(config.init_seed)
-
+    
+    # Enable higher precision matrix multiplication
+    torch.set_float32_matmul_precision('high')
+    
     # Build components
     model = config.model.build(init_device="meta")
     
@@ -310,18 +400,105 @@ def train(config: TitanExperimentConfig):
     
     # Build training components
     train_module = config.train_module.build(model)
+    
+    # Keep a reference to the original method from the instance
+    original_tm_model_forward = train_module.model_forward
+
+    # Define the new method that will replace train_module.model_forward
+    # 'slf' will be the train_module instance when this is called as a method
+    def new_patched_model_forward(slf, input_ids, labels=None, **kwargs):
+        # slf here is the train_module instance.
+        # 'model' (the nn.Module) is accessible via slf.model
+        # 'config' (TitanExperimentConfig) is accessible from the outer scope (closure)
+        
+        # The DEBUG print uses 'config' from the closure, which is fine.
+        print(f"DEBUG: input_ids min: {input_ids.min()}, max: {input_ids.max()}, vocab_size: {config.model.vocab_size}")
+        
+        # Call the original model_forward method correctly
+        outputs = original_tm_model_forward(input_ids, labels=labels, **kwargs)
+        
+        # Collect memory chunk losses
+        all_chunk_losses_for_step = []
+        # Iterate over the modules of the raw model (slf.model)
+        for module_name, module_instance in slf.model.named_modules():
+            if isinstance(module_instance, MAGReorderedNormTransformerBlock):
+                if hasattr(module_instance, 'chunk_losses_this_forward') and module_instance.chunk_losses_this_forward:
+                    all_chunk_losses_for_step.extend(module_instance.chunk_losses_this_forward)
+        trainer.record_metric('/memory/avg_chunk_loss', np.mean(all_chunk_losses_for_step))
+        
+        avg_chunk_loss = 0.0
+        if all_chunk_losses_for_step:
+            avg_chunk_loss = sum(all_chunk_losses_for_step) / len(all_chunk_losses_for_step)
+        
+        # Store the calculated average loss on the train_module instance (slf)
+        slf.avg_memory_chunk_loss_for_step = avg_chunk_loss
+
+        # Dummy loss logic (using slf.model for parameters)
+        # 'config' is from the closure.
+        if config.phase == "memory_only":
+            logits, loss, ce_loss, z_loss = outputs
+            dummy_loss = 0.0
+            for name, param in slf.model.named_parameters():
+                if not param.requires_grad:
+                    dummy_loss = dummy_loss + param.sum() * 0.0
+            loss = loss + dummy_loss
+            return logits, loss, ce_loss, z_loss
+        else:  # "full_model" phase
+            logits, loss, ce_loss, z_loss = outputs
+            dummy_param_loss = 0.0
+            for param in slf.model.parameters():
+                if param.requires_grad:
+                    dummy_param_loss += param.sum() * 0.0
+            loss = loss + dummy_param_loss
+            return logits, loss, ce_loss, z_loss
+    
+    # Bind the new function as a method to the train_module instance
+    train_module.model_forward = types.MethodType(new_patched_model_forward, train_module)
+    
+    # Also override train_batch to use autocast
+    original_train_batch = train_module.train_batch
+    
+    def train_batch_with_autocast(batch, *args, **kwargs):
+        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+            return original_train_batch(batch, *args, **kwargs)
+    
+    train_module.train_batch = train_batch_with_autocast
+    
     dataset = config.dataset.build()
     data_loader = config.data_loader.build(dataset, dp_process_group=train_module.dp_process_group)
-    trainer = config.trainer.build(train_module, data_loader)
-
-    # Save config to checkpoint dir
-    config_dict = config.as_config_dict()
-    cast(ConfigSaverCallback, trainer.callbacks["config_saver"]).config = config_dict
-
-    # Load from existing checkpoint if specified
-    if CHECKPOINT is not None and not trainer.maybe_load_checkpoint(trainer.save_folder):
-        trainer.load_checkpoint(CHECKPOINT)
-
+    
+    # Always create a trainer with checkpoint loading disabled for full_model
+    if config.phase == "full_model":
+        # Use deepcopy instead of .copy() method
+        trainer_config = copy.deepcopy(config.trainer)
+        trainer_config.load_from_checkpoint = False
+        
+        # Create trainer with modified config
+        trainer = trainer_config.build(train_module, data_loader)
+        
+        # Disable automatic checkpoint loading
+        trainer._loaded_checkpoint = True
+        
+        # Override methods to ensure no checkpoint loading
+        original_maybe_load = trainer.maybe_load_checkpoint
+        trainer.maybe_load_checkpoint = lambda *args, **kwargs: True
+        
+        # Save config to checkpoint dir
+        config_dict = config.as_config_dict()
+        cast(ConfigSaverCallback, trainer.callbacks["config_saver"]).config = config_dict
+    else:
+        # Regular trainer creation for memory_only phase
+        trainer = config.trainer.build(train_module, data_loader)
+        
+        # Save config to checkpoint dir
+        config_dict = config.as_config_dict()
+        cast(ConfigSaverCallback, trainer.callbacks["config_saver"]).config = config_dict
+        
+        # Regular checkpoint loading for memory_only phase
+        if CHECKPOINT is not None:
+            if not trainer.maybe_load_checkpoint(trainer.save_folder):
+                trainer.load_checkpoint(CHECKPOINT)
+    
     # Train for the specified number of steps
     if config.phase == "memory_only":
         # Train memory-only for the specified steps
@@ -347,8 +524,9 @@ def train(config: TitanExperimentConfig):
         log.info(f"  --phase=full_model --checkpoint={memory_only_checkpoint}")
     else:
         # Continue training with full model unfrozen
-        log.info(f"Starting full-model training phase")
+        log.info(f"Starting full-model training phase with fresh optimizer state")
         trainer.fit()
+        
 
 if __name__ == "__main__":
     usage = f"""
@@ -378,8 +556,15 @@ Train the full-model phase with checkpoint:
         sys.exit(1)
 
     # For single GPU, use this environment variable to disable distributed setup
+    os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
     os.environ["WORLD_SIZE"] = "1"
     os.environ["LOCAL_RANK"] = "0"
+    os.environ["RANK"] = "0"
+    os.environ["MASTER_ADDR"] = "localhost"  # Add this line
+    os.environ["MASTER_PORT"] = "12355" 
+    os.environ["NUM_NODES"] = "1"       # Add this line
+    os.environ["LOCAL_WORLD_SIZE"] = "1" # Add this line
+    os.environ["PYTORCH_FIND_UNUSED_PARAMETERS"] = "True"
     
     # Prepare training environment for single GPU
     prepare_training_environment()

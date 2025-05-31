@@ -156,7 +156,7 @@ class ParallelMLPs(nn.Module):
         return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
     # @torch.compile()
-    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=False, audit_grad=True):
+    def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=True):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
             
@@ -184,7 +184,7 @@ class ParallelMLPs(nn.Module):
             # ================================================================
             p_T, q_T, A_T, B_coeffs, D_coeffs = self.calculate_coeffs(beta_vecs, eta_vecs, theta_vecs)
 
-            if ckpt_memory and False:
+            if ckpt_memory:
                 # Using checkpointing to save memory (recomputes forward pass during back-prop instead of storing all activations)
                 def _fwd(keys):
                     return functional_call(self, current_params, keys)
@@ -255,15 +255,15 @@ class ParallelMLPs(nn.Module):
                 return (1-mixing)*g_proj + mixing*g      # optional blend
 
             # In update_memory, *before* update_param loop
-            proj_mem_grads = []
-            for name, g in zip(current_params.keys(), mem_grads):
-                if g is not None and 'weight' in name and g.ndim == 2:
-                    #print("ortho regularizing")
-                    W = current_params[name].detach()
+            # proj_mem_grads = []
+            # for name, g in zip(current_params.keys(), mem_grads):
+            #     if g is not None and 'weight' in name and g.ndim == 2:
+            #         #print("ortho regularizing")
+            #         W = current_params[name].detach()
                     
-                    # (1-mixing) x projection + mixing x original
-                    g = project_to_stiefel(W, g, mixing=0.9) 
-                proj_mem_grads.append(g)
+            #         # (1-mixing) x projection + mixing x original
+            #         g = project_to_stiefel(W, g, mixing=0.9) 
+            #     proj_mem_grads.append(g)
 
             # mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
             # surp_grads = [self.scaled_root_excess_norm(g, clip_sur_g) if g is not None else g for g in surp_grads]
@@ -297,7 +297,7 @@ class ParallelMLPs(nn.Module):
 
             new_params = {
                 name: update_param(name, grad)
-                for name, grad in zip(current_params.keys(), proj_mem_grads)
+                for name, grad in zip(current_params.keys(), mem_grads)
             }
 
             surprises = {
@@ -614,7 +614,8 @@ class NeuralMemory(nn.Module):
                     if not torch.isfinite(param).all():
                         raise ValueError(f"Parameter {name} contains NaN or Inf values.")
 
-                    param = param.clamp(-10, 10)  # Simple value clipping
+                    #param = param.clamp(-10, 10)  # Simple value clipping
+                    nn.utils.clip_grad_norm_(param, 10)
                     if clean_name not in mlp_sums:
                         mlp_sums[clean_name] = param.detach().clone()  # initializing with clone for running sum
                     else:
@@ -642,7 +643,6 @@ class NeuralMemory(nn.Module):
             return
         
         current_state = self.mlp_states[-1]
-        print("\n=== Current MLP State Statistics ===")
         
         for name, param in current_state.items():
             # Skip parameters that might not be tensors
@@ -655,16 +655,3 @@ class NeuralMemory(nn.Module):
                 clean_name = name[match.end():].replace('.', '_')
             else:
                 clean_name = name.replace('.', '_')
-            
-            # Calculate statistics
-            print(
-                f"[CURRENT STATE: {clean_name}] "
-                f"min={param.data.min().item():.6f}, "
-                f"median={param.data.median().item():.6f}, "
-                f"max={param.data.max().item():.6f}, "
-                f"mean={param.data.mean().item():.6f}, "
-                f"std={param.data.std().item():.6f}, "
-                f"norm={param.data.norm().item():.6f}"
-            )
-        
-        print("=====================================\n")
