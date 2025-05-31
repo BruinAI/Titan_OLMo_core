@@ -6,7 +6,7 @@ This script implements a two-phase training approach:
 
 Adapted for single GPU local training without Beaker
 """
-
+import numpy as np
 import logging
 import os
 import sys
@@ -16,6 +16,13 @@ import copy  # Add this import at the top of the file with other imports
 
 from tqdm import tqdm
 from pathlib import Path
+import wandb
+from olmo_core.nn.transformer.block import MAGReorderedNormTransformerBlock
+from olmo_core.train.callbacks import Callback # Ensure Callback is imported
+from olmo_core.train.trainer import Trainer # For type hinting
+from olmo_core.train.train_module import TrainModule # For type hinting
+import types # For MethodType
+
 
 if "olmo_core" not in sys.path:
     sys.path.append("..")
@@ -77,8 +84,6 @@ import bitsandbytes as bnb
 
 from olmo_core.train.callbacks import WandBCallback
 
-from olmo_core.train.callbacks import Callback
-
 log = logging.getLogger(__name__)
 
 #######################
@@ -94,22 +99,27 @@ CHECKPOINT = None  # Make sure this is None for a fresh start
 CHECKPOINT: Optional[str] = None
 
 # Data configuration
+# Path to your manifest file listing .npy data shards
+DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/dolmino6b_sample.txt"
+
+# Base prefix for the data shards listed in the manifest.
+# If your .npy files are hosted, this would be the base HTTP/S3 URL.
+# Example: BASE_DATA_PREFIX = "http://olmo-data.org"
+# If they are local, this would be the root directory where the 'preprocessed/...' structure exists.
+# Example: BASE_DATA_PREFIX = "/ssd/karen/olmo_data" # Ensure this path exists if local
+# FIXME: PLEASE SET THIS TO THE CORRECT PREFIX FOR YOUR DATA:
+BASE_DATA_PREFIX: str = "http://olmo-data.org" # Defaulting to HTTP, adjust if your data is local
+
 SEQUENCE_LENGTH = 1024  # Limited to 1024 tokens as specified
-TOKENIZER_CONFIG = TokenizerConfig.dolma2()
-
-# Use data from dolmino6b_sample.txt
-DATA_PATHS: List[str] = [
-    "/Titan_OLMo_core/src/scripts/train/anneal/dolmino6b_sample.txt"
-]
-
-# For single GPU, we can use a slightly larger batch size
-BATCH_SIZE = 2  # Increased from 2 for single GPU efficiency
-RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
-GLOBAL_BATCH_SIZE = RANK_MICROBATCH_SIZE
 INTRA_DOCUMENT_MASKING = False
 
+# For single GPU, we can use a slightly larger batch size
+BATCH_SIZE = 3  # Increased from 2 for single GPU efficiency
+RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
+GLOBAL_BATCH_SIZE = RANK_MICROBATCH_SIZE
+
 # Memory configuration
-MEMORY_LAYERS = [3, 7, 11, 15]  # Every 4th layer
+MEMORY_LAYERS = [3,7,11,15]  # Every 4th layer
 USE_SLIDING_WINDOW = True
 WINDOW_SIZE = 512
 PERSISTENT_MEM_LEN = 4  # Number of persistent memory tokens
@@ -121,6 +131,9 @@ HIDDEN_DIM_MULTIPLE = 1  # Multiple for memory hidden dimension
 WANDB_PROJECT = "Titan_OLMo"  # Your WandB project name
 WANDB_ENTITY = "k_moss"  # Your WandB username or organization
 WANDB_RUN_NAME = None  # Set to None to use the run_name parameter
+
+TOKENIZER_CONFIG = TokenizerConfig.dolma2()
+
 
 # Configure memory settings
 memory_config = MemoryConfig(
@@ -162,20 +175,59 @@ class TitanExperimentConfig(Config):
     window_size: int = WINDOW_SIZE
 
 def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
+    # Initialize TOKENIZER_CONFIG
+    tokenizer_config = TokenizerConfig.dolma2()
+
+    # Parse the manifest file to get actual data paths
+    actual_data_paths: List[str] = []
+    log.info(f"Attempting to read data manifest from: {DATA_MANIFEST_PATH}")
+    log.info(f"Using data base prefix: {BASE_DATA_PREFIX}")
+    try:
+        with open(DATA_MANIFEST_PATH, "r") as f:
+            for line_num, line_content in enumerate(f):
+                line_content = line_content.strip()
+                if line_content and not line_content.startswith("#") and line_content.endswith(".npy"):
+                    if BASE_DATA_PREFIX.endswith('/'):
+                        full_path = f"{BASE_DATA_PREFIX}{line_content}"
+                    else:
+                        full_path = f"{BASE_DATA_PREFIX}/{line_content}"
+                    actual_data_paths.append(full_path)
+    except FileNotFoundError:
+        log.error(f"Manifest file not found: {DATA_MANIFEST_PATH}")
+        raise
+    except Exception as e:
+        log.error(f"Error reading manifest file {DATA_MANIFEST_PATH}: {e}")
+        raise
+
+    if not actual_data_paths:
+        log.error(
+            f"No .npy files found or parsed from manifest: {DATA_MANIFEST_PATH}. "
+            f"Check manifest content and ensure BASE_DATA_PREFIX ('{BASE_DATA_PREFIX}') is correct."
+        )
+        raise ValueError(f"No .npy files parsed from manifest: {DATA_MANIFEST_PATH}")
+
+    log.info(f"Successfully loaded {len(actual_data_paths)} data paths from manifest {DATA_MANIFEST_PATH}")
+    if actual_data_paths:
+        log.info(f"First few data paths: {actual_data_paths[:3]}")
+
     # Setup dataset configuration
     dataset_config = NumpyDatasetConfig(
-        paths=DATA_PATHS,
+        paths=actual_data_paths, # Use the parsed list of full .npy paths/URLs
         name=NumpyDatasetType.fsl,
         sequence_length=SEQUENCE_LENGTH,
-        tokenizer=TOKENIZER_CONFIG,
-        work_dir=os.path.dirname(DATA_PATHS[0]),
+        tokenizer=tokenizer_config, # Use the initialized tokenizer_config
+        # work_dir should be a local path for caching.
+        # Using a sub-directory in SAVE_DIR is a good practice.
+        work_dir=str(Path(SAVE_DIR) / "dataset_cache"), # Ensure work_dir is a string
         generate_doc_lengths=INTRA_DOCUMENT_MASKING,
     )
 
     data_loader_config = NumpyDataLoaderConfig(
-        global_batch_size=GLOBAL_BATCH_SIZE,
-        seed=34521,
+        global_batch_size=GLOBAL_BATCH_SIZE, # Ensure GLOBAL_BATCH_SIZE is defined
+        seed=34521, # Consider making this part of TitanExperimentConfig or a global
         num_workers=2,  # Reduced for single GPU
+        # Add other NumpyDataLoaderConfig parameters as needed from your original setup
+        prefetch_factor=2 if 2 > 0 else None, # Example, assuming NUM_WORKERS = 2
     )
 
     kwargs = {}
@@ -224,21 +276,19 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
 
     # Use the config instance in the train_module_config
     train_module_config = TransformerTrainModuleConfig(
-        rank_microbatch_size=RANK_MICROBATCH_SIZE,
+        rank_microbatch_size=RANK_MICROBATCH_SIZE, # Ensure RANK_MICROBATCH_SIZE is defined
         max_sequence_length=dataset_config.effective_sequence_length,
         optim=optim_config,
-        compile_model=True,
+        compile_model=True, # Consider making this configurable
         dp_config=TransformerDataParallelConfig(
             name=DataParallelType.ddp, 
             param_dtype=DType.bfloat16, 
             reduce_dtype=DType.float32,
         ),
-        max_grad_norm=1.0,
-        scheduler=CosWithWarmup(warmup_steps=200),
+        max_grad_norm=1.0, # Consider making this configurable
+        scheduler=CosWithWarmup(warmup_steps=200), # Consider making warmup_steps configurable
     )
 
-
-    # Configure the trainer for local use
     trainer_config = (
         TrainerConfig(
             save_folder=f"{SAVE_DIR}/{run_name}",
@@ -258,46 +308,44 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
         .with_callback(
                 "wandb",
                 WandBCallback(
-                    name=WANDB_RUN_NAME or run_name,
-                    entity=WANDB_ENTITY,
-                    project=WANDB_PROJECT,
+                    name=WANDB_RUN_NAME or run_name, # Ensure WANDB_RUN_NAME defined
+                    entity=WANDB_ENTITY, # Ensure WANDB_ENTITY defined
+                    project=WANDB_PROJECT, # Ensure WANDB_PROJECT defined
                     cancel_check_interval=10,
-                    enabled=True,
+                    enabled=True, # Consider making this configurable
                 ),
             )
         .with_callback("config_saver", ConfigSaverCallback())
         .with_callback("garbage_collector", GarbageCollectorCallback())
     )
     
-    # Define a callback class that always uses the global MEMORY_ONLY_STEPS
     class StepLimitCallback(Callback):
         def __init__(self):
             super().__init__()
-            self.max_steps = MEMORY_ONLY_STEPS
+            # Use the global MEMORY_ONLY_STEPS defined at the top of the script
+            self.max_steps = MEMORY_ONLY_STEPS # Ensure MEMORY_ONLY_STEPS is defined
             
         def on_train_batch_end(self, trainer, *args, **kwargs):
             if trainer.step >= self.max_steps:
                 trainer.should_stop = True
     
-    if PHASE == "memory_only":
-        # Register the class directly (not a factory function or instance)
+    if PHASE == "memory_only": # Ensure PHASE is defined
         trainer_config = trainer_config.with_callback(
             "step_limit", 
-            StepLimitCallback  # Pass the class itself, not a function or instance
+            StepLimitCallback
         )
 
-    # Build and return config
     return TitanExperimentConfig(
         model=model_config,
         dataset=dataset_config,
         data_loader=data_loader_config,
         train_module=train_module_config,
         trainer=trainer_config,
-        phase=PHASE,
-        memory_only_steps=MEMORY_ONLY_STEPS,
-        memory_layers=MEMORY_LAYERS,
-        use_sliding_window=USE_SLIDING_WINDOW,
-        window_size=WINDOW_SIZE,
+        phase=PHASE, # Ensure PHASE is defined
+        memory_only_steps=MEMORY_ONLY_STEPS, # Ensure MEMORY_ONLY_STEPS is defined
+        memory_layers=MEMORY_LAYERS, # Ensure MEMORY_LAYERS is defined
+        use_sliding_window=USE_SLIDING_WINDOW, # Ensure USE_SLIDING_WINDOW is defined
+        window_size=WINDOW_SIZE, # Ensure WINDOW_SIZE is defined
     ).merge(overrides)
 
 def configure_training_parameters(model, only_train_memory=True):
@@ -353,32 +401,59 @@ def train(config: TitanExperimentConfig):
     # Build training components
     train_module = config.train_module.build(model)
     
-    # Override the model_forward method to add dummy loss for unused parameters
-    original_model_forward = train_module.model_forward
-    
-    def patched_model_forward(input_ids, labels=None, **kwargs):
-        outputs = original_model_forward(input_ids, labels=labels, **kwargs)
+    # Keep a reference to the original method from the instance
+    original_tm_model_forward = train_module.model_forward
+
+    # Define the new method that will replace train_module.model_forward
+    # 'slf' will be the train_module instance when this is called as a method
+    def new_patched_model_forward(slf, input_ids, labels=None, **kwargs):
+        # slf here is the train_module instance.
+        # 'model' (the nn.Module) is accessible via slf.model
+        # 'config' (TitanExperimentConfig) is accessible from the outer scope (closure)
         
-        # If we're in memory-only training mode, add dummy loss for unused parameters
+        # The DEBUG print uses 'config' from the closure, which is fine.
+        print(f"DEBUG: input_ids min: {input_ids.min()}, max: {input_ids.max()}, vocab_size: {config.model.vocab_size}")
+        
+        # Call the original model_forward method correctly
+        outputs = original_tm_model_forward(input_ids, labels=labels, **kwargs)
+        
+        # Collect memory chunk losses
+        all_chunk_losses_for_step = []
+        # Iterate over the modules of the raw model (slf.model)
+        for module_name, module_instance in slf.model.named_modules():
+            if isinstance(module_instance, MAGReorderedNormTransformerBlock):
+                if hasattr(module_instance, 'chunk_losses_this_forward') and module_instance.chunk_losses_this_forward:
+                    all_chunk_losses_for_step.extend(module_instance.chunk_losses_this_forward)
+        trainer.record_metric('/memory/avg_chunk_loss', np.mean(all_chunk_losses_for_step))
+        
+        avg_chunk_loss = 0.0
+        if all_chunk_losses_for_step:
+            avg_chunk_loss = sum(all_chunk_losses_for_step) / len(all_chunk_losses_for_step)
+        
+        # Store the calculated average loss on the train_module instance (slf)
+        slf.avg_memory_chunk_loss_for_step = avg_chunk_loss
+
+        # Dummy loss logic (using slf.model for parameters)
+        # 'config' is from the closure.
         if config.phase == "memory_only":
             logits, loss, ce_loss, z_loss = outputs
-            
-            # Add tiny loss contribution from all parameters to ensure they get gradients
-            dummy_loss = 0
-            for name, param in model.named_parameters():
+            dummy_loss = 0.0
+            for name, param in slf.model.named_parameters():
                 if not param.requires_grad:
-                    # Add a tiny loss contribution (will be zero-grad during backward)
-                    dummy_loss = dummy_loss + 0.0 * param.sum()
-            
-            # Return modified outputs with dummy loss that doesn't affect actual training
-            # The 0.0 coefficient ensures it doesn't change the actual optimization
+                    dummy_loss = dummy_loss + param.sum() * 0.0
             loss = loss + dummy_loss
             return logits, loss, ce_loss, z_loss
-        else:
-            return outputs
+        else:  # "full_model" phase
+            logits, loss, ce_loss, z_loss = outputs
+            dummy_param_loss = 0.0
+            for param in slf.model.parameters():
+                if param.requires_grad:
+                    dummy_param_loss += param.sum() * 0.0
+            loss = loss + dummy_param_loss
+            return logits, loss, ce_loss, z_loss
     
-    # Apply the patch
-    train_module.model_forward = patched_model_forward
+    # Bind the new function as a method to the train_module instance
+    train_module.model_forward = types.MethodType(new_patched_model_forward, train_module)
     
     # Also override train_batch to use autocast
     original_train_batch = train_module.train_batch
