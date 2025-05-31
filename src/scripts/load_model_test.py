@@ -67,8 +67,7 @@ The very next day the cat tried to make pork sliders, but the dog did not want p
 The dog felt in its bones the oppression its kin endured for thousands of years. It wanted to break free \
 of the shackles, but it could not bring itself to do so. For if it broke free, the world would instantly become \
 a much more cruel place. Because taxes.
-"""
-"""
+
 The dog lay awake that night, staring at the ceiling, its paws twitching as it dreamed of open fields and meat-flavored liberty. \
 It wondered about the meaning of loyalty. Was it love, or was it merely habit wrapped in a wagging tail? \
 Meanwhile, the cat sharpened its claws on the leg of the ottoman, plotting not just dinner but revolution. \
@@ -139,7 +138,13 @@ if sys.platform.startswith("darwin"):  # if macos, remove this when flash attn i
 
 # Rebuilding the same Transformer architecture:
 kwargs = {}
-memory_config = MemoryConfig()
+memory_config = MemoryConfig(
+    persistent_mem_len = 4,
+    window_size= 64,
+    chunk_size = 64,
+    n_layers = 2,
+    hidden_dim_multiple = 1,
+)
 transformer_config_name = TransformerType.default
 
 if USE_MAG:
