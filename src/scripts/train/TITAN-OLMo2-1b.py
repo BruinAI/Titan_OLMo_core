@@ -90,6 +90,11 @@ log = logging.getLogger(__name__)
 #### CONFIGURATION ####
 #######################
 
+# GPU Configuration
+# Set to 0 for the first GPU, 1 for the second, etc.
+# PyTorch will see this GPU as 'cuda:0' after setting CUDA_VISIBLE_DEVICES.
+DESIRED_GPU_ID: int = 0 # MODIFIED: Added GPU selection
+
 # Phase configuration
 # At the top of the file, change this line
 PHASE = "full_model"  # Change from "memory_only" to "full_model"
@@ -150,7 +155,7 @@ memory_config = MemoryConfig(
 # Training configuration
 MEMORY_ONLY_STEPS = 2000  # Number of steps for memory-only training
 LEARNING_RATE = 5e-5
-FULL_MODEL_LEARNING_RATE = 1e-5
+FULL_MODEL_LEARNING_RATE = 9e-5
 
 # Local save path - create checkpoints directory if it doesn't exist
 SAVE_DIR = os.path.expanduser("~/titan_checkpoints")
@@ -555,6 +560,27 @@ Train the full-model phase with checkpoint:
     if cmd != "train":
         print(usage)
         sys.exit(1)
+
+    # GPU selection using CUDA_VISIBLE_DEVICES
+    # This should be done before any torch.cuda calls or prepare_training_environment
+    if torch.cuda.is_available():
+        num_gpus = torch.cuda.device_count()
+        if DESIRED_GPU_ID < num_gpus:
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(DESIRED_GPU_ID)
+            log.info(
+                f"Setting CUDA_VISIBLE_DEVICES='{DESIRED_GPU_ID}'. "
+                f"PyTorch will see GPU {DESIRED_GPU_ID} as cuda:0."
+            )
+        else:
+            log.warning(
+                f"Desired GPU ID {DESIRED_GPU_ID} is not available (found {num_gpus} GPUs). "
+                f"Defaulting to GPU 0 if available. Otherwise, CPU will be used."
+            )
+            if num_gpus > 0:
+                os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+            # If no GPUs, PyTorch will fall back to CPU.
+    else:
+        log.info("CUDA not available. Training will use CPU.")
 
     # For single GPU, use this environment variable to disable distributed setup
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
