@@ -424,7 +424,8 @@ def train(config: TitanExperimentConfig):
             if isinstance(module_instance, MAGReorderedNormTransformerBlock):
                 if hasattr(module_instance, 'chunk_losses_this_forward') and module_instance.chunk_losses_this_forward:
                     all_chunk_losses_for_step.extend(module_instance.chunk_losses_this_forward)
-        trainer.record_metric('/memory/avg_chunk_loss', np.mean(all_chunk_losses_for_step))
+        trainer.record_metric('train/memory/avg_chunk_loss', np.mean(all_chunk_losses_for_step))
+        trainer.record_metric('train/memory/max_chunk_loss', np.max(all_chunk_losses_for_step))
         
         avg_chunk_loss = 0.0
         if all_chunk_losses_for_step:

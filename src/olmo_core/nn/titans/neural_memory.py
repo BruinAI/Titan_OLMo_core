@@ -5,7 +5,7 @@ from torch.func import functional_call
 import torch.utils.checkpoint as cp
 from typing import List
 import regex as re
-
+from torch.func import vjp, vmap
 
 class ParallelMLPs(nn.Module):
     _mlp_index_regex = re.compile(r"\.(\d+)\.")
@@ -156,6 +156,20 @@ class ParallelMLPs(nn.Module):
         return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
     # @torch.compile()
+    def compute_gradients(self, current_params, keys, values, b_coeffs, d_coeffs):
+        def f(flat_params):
+            return functional_call(self, flat_params, keys)
+
+        out, vjp_f = vjp(f, current_params)  # type: ignore
+        sqerr = torch.nn.functional.mse_loss(out, values, reduction='none')  # squared error
+        d_sqerr = 2.0 * (out - values)
+        cotangents = torch.stack((d_sqerr * b_coeffs, d_sqerr * d_coeffs), dim=0)
+        grads_batched = vmap(vjp_f)(cotangents)[0]
+        mem_grads = [grads_batched[name][0] for name in current_params.keys()]
+        surp_grads = [grads_batched[name][1] for name in current_params.keys()]
+        return mem_grads, surp_grads, sqerr
+    
+    # @torch.compile()
     def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=True):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
@@ -184,29 +198,29 @@ class ParallelMLPs(nn.Module):
             # ================================================================
             p_T, q_T, A_T, B_coeffs, D_coeffs = self.calculate_coeffs(beta_vecs, eta_vecs, theta_vecs)
 
-            if ckpt_memory:
-                # Using checkpointing to save memory (recomputes forward pass during back-prop instead of storing all activations)
-                def _fwd(keys):
-                    return functional_call(self, current_params, keys)
-                outputs = cp.checkpoint(_fwd, keys.detach().requires_grad_(), use_reentrant=False)
-            else:
-                outputs = functional_call(self, current_params, keys)
+            # if ckpt_memory:
+            #     # Using checkpointing to save memory (recomputes forward pass during back-prop instead of storing all activations)
+            #     def _fwd(keys):
+            #         return functional_call(self, current_params, keys)
+            #     outputs = cp.checkpoint(_fwd, keys.detach().requires_grad_(), use_reentrant=False)
+            # else:
+            #     outputs = functional_call(self, current_params, keys)
             
             # assert not torch.isnan(outputs).any(), "Outputs contain NaN values, which is unexpected."
             # assert not torch.isinf(outputs).any(), "Outputs contain NaN or Inf values, which is unexpected."
-            sqerr = (outputs - values).pow(2)  # squared error
+            # sqerr = (outputs - values).pow(2)  # squared error
             #if not self.training: print(outputs, values)
             
-            input_params = tuple(current_params.values())
-            mem_grads = torch.autograd.grad(
-                outputs=sqerr, inputs=input_params, grad_outputs=B_coeffs.expand_as(sqerr), 
-                allow_unused=True, retain_graph=True
-            )
-
-            surp_grads = torch.autograd.grad(
-                outputs=sqerr, inputs=input_params, grad_outputs=D_coeffs.expand_as(sqerr),
-                allow_unused=True
-            )
+            # input_params = tuple(current_params.values())
+            # mem_grads = torch.autograd.grad(
+            #     outputs=sqerr, inputs=input_params, grad_outputs=B_coeffs.expand_as(sqerr), 
+            #     allow_unused=True, retain_graph=True
+            # )
+            mem_grads, surp_grads, sqerr = self.compute_gradients(current_params, keys, values, B_coeffs, D_coeffs) #type: ignore
+            # surp_grads = torch.autograd.grad(
+            #     outputs=sqerr, inputs=input_params, grad_outputs=D_coeffs.expand_as(sqerr),
+            #     allow_unused=True
+            # )
 
             if audit_grad:
                 # Log L2 norm of mem_grads
