@@ -409,11 +409,12 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             start = i * self.chunk_size
             end = min(start + self.chunk_size, x.shape[1])
             chunk_x = x[:, start:end, :]
+            # Moved retrieve to before update to preserve causality
+            gate = self.memory.retrieve(chunk_x) 
             
             _loss = self.memory.update(chunk_x)
             self.chunk_losses_this_forward.append(_loss.item())
             #print(f"Chunk {i}: Loss = {_loss.item()}")
-            gate = self.memory.retrieve(chunk_x)
             gates.append(gate)
             self.memory.print_mlp_state_stats()
             self.memory.train_initial_mlp()

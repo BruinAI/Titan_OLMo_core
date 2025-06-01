@@ -128,7 +128,7 @@ and what it meant to come home."""
 
 
 # Layers that should use memory (e.g., only layers 0, 5, 10)
-MEMORY_LAYERS = [3, 11]  # every 4th layer
+MEMORY_LAYERS = [3]  # every 4th layer
 
 if sys.platform.startswith("darwin"):  # if macos, remove this when flash attn is deprecated
     USE_SW = False
@@ -182,8 +182,20 @@ model_cfg = TransformerConfig.olmo2_1B(vocab_size=tok_cfg.padded_vocab_size(), *
 model_cfg.name = transformer_config_name
 
 model: torch.nn.Module = model_cfg.build()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-is_cuda = device.type == "cuda"
+# Specify the desired GPU, e.g., cuda:1 for the second GPU
+# If only one GPU is available, it will still be cuda:0
+# Ensure that torch.cuda.device_count() > 1 if you specify cuda:1
+desired_gpu_id = 1 # 0 for first, 1 for second, etc.
+if torch.cuda.is_available():
+    if desired_gpu_id < torch.cuda.device_count():
+        device = torch.device(f"cuda:{desired_gpu_id}")
+    else:
+        print(f"Warning: GPU {desired_gpu_id} not available, falling back to cuda:0 or CPU.")
+        device = torch.device("cuda:0" if torch.cuda.device_count() > 0 else "cpu")
+else:
+    device = torch.device("cpu")
+
+is_cuda = ("cuda" in device.type)
 model = model.to(device)
 
 if USE_MAG:
@@ -284,7 +296,7 @@ else:
         if not torch.cuda.is_available():
             return 0
         # Reset peak stats
-        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.reset_peak_memory_stats(device=device)
         # Run training
         yield
         # Get peak memory in MB
@@ -451,7 +463,7 @@ else:
             
             # Track peak memory
             if torch.cuda.is_available():
-                torch.cuda.reset_peak_memory_stats()
+                torch.cuda.reset_peak_memory_stats(device=device)
             
             for i in tqdm(range(5)):
                 # Run with autocast but handle loss calculation in float32
@@ -499,7 +511,7 @@ else:
             
             # Report peak memory usage if cuda
             if torch.cuda.is_available():
-                peak_memory = torch.cuda.max_memory_allocated() / (1024 * 1024)
+                peak_memory = torch.cuda.max_memory_allocated(device=device) / (1024 * 1024)
                 print(f"\nPeak GPU memory usage ({train_mode}): {peak_memory:.2f} MB")
             
             # Reset model and cache before next run
