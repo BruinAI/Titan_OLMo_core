@@ -1,0 +1,1555 @@
+TRACED GRAPH
+ ===== __compiled_fn_79 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_parameters_persistent_tokens_: "[31mf32[0m[34m[4, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_K_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_V_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_parameters_persistent_tokens_ = L_self_parameters_persistent_tokens_
+        l_self_modules_k_parameters_weight_ = L_self_modules_K_parameters_weight_
+        l_self_modules_v_parameters_weight_ = L_self_modules_V_parameters_weight_
+        l_self_modules_alpha_parameters_weight_ = L_self_modules_alpha_parameters_weight_
+        l_self_modules_alpha_parameters_bias_ = L_self_modules_alpha_parameters_bias_
+        l_self_modules_eta_parameters_weight_ = L_self_modules_eta_parameters_weight_
+        l_self_modules_eta_parameters_bias_ = L_self_modules_eta_parameters_bias_
+        l_self_modules_theta_parameters_weight_ = L_self_modules_theta_parameters_weight_
+        l_self_modules_theta_parameters_bias_ = L_self_modules_theta_parameters_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:512 in update, code: z = x.detach()[0m
+        z: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.detach();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:518 in update, code: repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)[0m
+        repeated_persistent_tokens: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = l_self_parameters_persistent_tokens_.unsqueeze([34m0[0m);  [2ml_self_parameters_persistent_tokens_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:521 in update, code: repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)[0m
+        repeated_persistent_tokens_1: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = repeated_persistent_tokens.expand([34m1[0m, [34m-1[0m, [34m-1[0m);  [2mrepeated_persistent_tokens = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:524 in update, code: z = torch.cat([repeated_persistent_tokens, z], dim=1)[0m
+        z_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.cat([repeated_persistent_tokens_1, z], dim = [34m1[0m);  [2mrepeated_persistent_tokens_1 = z = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:527 in update, code: keys = self.silu(self.K(z))[0m
+        linear: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_k_parameters_weight_, [34mNone[0m);  [2ml_self_modules_k_parameters_weight_ = None[0m
+        keys: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:528 in update, code: values = self.silu(self.V(z))[0m
+        linear_1: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_v_parameters_weight_, [34mNone[0m);  [2mz_1 = l_self_modules_v_parameters_weight_ = None[0m
+        values: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear_1, inplace = [34mFalse[0m);  [2mlinear_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:543 in update, code: keys = F.normalize(keys, eps=1e-8)[0m
+        keys_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(keys, eps = [34m1e-08[0m);  [2mkeys = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:544 in update, code: values = F.normalize(values, eps=1e-8)[0m
+        values_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(values, eps = [34m1e-08[0m);  [2mvalues = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:547 in update, code: beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)[0m
+        linear_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_alpha_parameters_weight_, l_self_modules_alpha_parameters_bias_);  [2ml_self_modules_alpha_parameters_weight_ = l_self_modules_alpha_parameters_bias_ = None[0m
+        sigmoid: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_2);  [2mlinear_2 = None[0m
+        squeeze: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid.squeeze([34m-1[0m);  [2msigmoid = None[0m
+        mul: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.015[0m * squeeze;  [2msqueeze = None[0m
+        beta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul;  [2mmul = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:548 in update, code: eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_3: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_eta_parameters_weight_, l_self_modules_eta_parameters_bias_);  [2ml_self_modules_eta_parameters_weight_ = l_self_modules_eta_parameters_bias_ = None[0m
+        sigmoid_1: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_3);  [2mlinear_3 = None[0m
+        squeeze_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_1.squeeze([34m-1[0m);  [2msigmoid_1 = None[0m
+        mul_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.1[0m * squeeze_1;  [2msqueeze_1 = None[0m
+        eta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul_1;  [2mmul_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:549 in update, code: theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_4: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_theta_parameters_weight_, l_self_modules_theta_parameters_bias_);  [2ml_self_modules_theta_parameters_weight_ = l_self_modules_theta_parameters_bias_ = None[0m
+        sigmoid_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_4);  [2mlinear_4 = None[0m
+        squeeze_2: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_2.squeeze([34m-1[0m);  [2msigmoid_2 = None[0m
+        theta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.0003[0m * squeeze_2;  [2msqueeze_2 = None[0m
+        return (keys_1, values_1, beta_vec, eta_vec, theta_vec)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_83 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_grad_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_current_params_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_surprises_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_p_T_: "[31mf32[0m[34m[1][0m[2m[34m[36][0m[2m[32mcuda:0[0m", L_A_T_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_grad_ = L_grad_
+        l_current_params_mlps_0_0_weight_ = L_current_params_mlps_0_0_weight_
+        l_surprises_mlps_0_0_weight_ = L_surprises_mlps_0_0_weight_
+        l_p_t_ = L_p_T_
+        l_a_t_ = L_A_T_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:291 in update_param, code: surprise = surprises.get(name, torch.zeros_like(orig_param))[0m
+        zeros_like: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.zeros_like(l_current_params_mlps_0_0_weight_);  [2mzeros_like = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:293 in update_param, code: orig_weight_coeff = p_T[idx] * self.l2_factor[0m
+        getitem: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = l_p_t_[[34m0[0m];  [2ml_p_t_ = None[0m
+        orig_weight_coeff: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = getitem * [34m1.0[0m;  [2mgetitem = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:294 in update_param, code: new_param = orig_weight_coeff * orig_param + A_T[idx] * surprise - grad[0m
+        mul_1: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = orig_weight_coeff * l_current_params_mlps_0_0_weight_;  [2morig_weight_coeff = l_current_params_mlps_0_0_weight_ = None[0m
+        getitem_1: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = l_a_t_[[34m0[0m];  [2ml_a_t_ = None[0m
+        mul_2: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = getitem_1 * l_surprises_mlps_0_0_weight_;  [2mgetitem_1 = l_surprises_mlps_0_0_weight_ = None[0m
+        add: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = mul_1 + mul_2;  [2mmul_1 = mul_2 = None[0m
+        new_param: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = add - l_grad_;  [2madd = l_grad_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:299 in update_param, code: return new_param.detach().clamp(-clamp_w, clamp_w).requires_grad_(True)[0m
+        detach: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = new_param.detach();  [2mnew_param = None[0m
+        clamp: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = detach.clamp([34m-100.0[0m, [34m100.0[0m);  [2mdetach = None[0m
+        return (clamp,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_85 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_surp_grads_0_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_current_params_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_surprises_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_q_T_: "[31mf32[0m[34m[1][0m[2m[34m[36][0m[2m[32mcuda:0[0m", L_surp_grads_1_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_current_params_mlps_0_1_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_surprises_mlps_0_1_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_surp_grads_2_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_current_params_mlps_0_1_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_surprises_mlps_0_1_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_surp_grads_3_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_current_params_mlps_0_3_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_surprises_mlps_0_3_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_surp_grads_4_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_current_params_mlps_0_3_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_surprises_mlps_0_3_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_surp_grads_5_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_current_params_mlps_0_4_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_surprises_mlps_0_4_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_surp_grads_6_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_current_params_mlps_0_4_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_surprises_mlps_0_4_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_sqerr_: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m"):
+        l_surp_grads_0_ = L_surp_grads_0_
+        l_current_params_mlps_0_0_weight_ = L_current_params_mlps_0_0_weight_
+        l_surprises_mlps_0_0_weight_ = L_surprises_mlps_0_0_weight_
+        l_q_t_ = L_q_T_
+        l_surp_grads_1_ = L_surp_grads_1_
+        l_current_params_mlps_0_1_weight_ = L_current_params_mlps_0_1_weight_
+        l_surprises_mlps_0_1_weight_ = L_surprises_mlps_0_1_weight_
+        l_surp_grads_2_ = L_surp_grads_2_
+        l_current_params_mlps_0_1_bias_ = L_current_params_mlps_0_1_bias_
+        l_surprises_mlps_0_1_bias_ = L_surprises_mlps_0_1_bias_
+        l_surp_grads_3_ = L_surp_grads_3_
+        l_current_params_mlps_0_3_weight_ = L_current_params_mlps_0_3_weight_
+        l_surprises_mlps_0_3_weight_ = L_surprises_mlps_0_3_weight_
+        l_surp_grads_4_ = L_surp_grads_4_
+        l_current_params_mlps_0_3_bias_ = L_current_params_mlps_0_3_bias_
+        l_surprises_mlps_0_3_bias_ = L_surprises_mlps_0_3_bias_
+        l_surp_grads_5_ = L_surp_grads_5_
+        l_current_params_mlps_0_4_weight_ = L_current_params_mlps_0_4_weight_
+        l_surprises_mlps_0_4_weight_ = L_surprises_mlps_0_4_weight_
+        l_surp_grads_6_ = L_surp_grads_6_
+        l_current_params_mlps_0_4_bias_ = L_current_params_mlps_0_4_bias_
+        l_surprises_mlps_0_4_bias_ = L_surprises_mlps_0_4_bias_
+        l_sqerr_ = L_sqerr_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:306 in update_surprise, code: old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))[0m
+        zeros_like: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.zeros_like(l_current_params_mlps_0_0_weight_);  [2ml_current_params_mlps_0_0_weight_ = zeros_like = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:308 in update_surprise, code: new_surprise = q_T[idx] * old_surprise - grad[0m
+        getitem: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = l_q_t_[[34m0[0m]
+        mul: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = getitem * l_surprises_mlps_0_0_weight_;  [2mgetitem = l_surprises_mlps_0_0_weight_ = None[0m
+        new_surprise: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = mul - l_surp_grads_0_;  [2mmul = l_surp_grads_0_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:310 in update_surprise, code: return new_surprise.detach().clamp(-clamp_w, clamp_w)[0m
+        detach: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = new_surprise.detach();  [2mnew_surprise = None[0m
+        clamp: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = detach.clamp([34m-100.0[0m, [34m100.0[0m);  [2mdetach = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:306 in update_surprise, code: old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))[0m
+        zeros_like_1: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch.zeros_like(l_current_params_mlps_0_1_weight_);  [2ml_current_params_mlps_0_1_weight_ = zeros_like_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:308 in update_surprise, code: new_surprise = q_T[idx] * old_surprise - grad[0m
+        getitem_1: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = l_q_t_[[34m0[0m]
+        mul_1: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = getitem_1 * l_surprises_mlps_0_1_weight_;  [2mgetitem_1 = l_surprises_mlps_0_1_weight_ = None[0m
+        new_surprise_1: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = mul_1 - l_surp_grads_1_;  [2mmul_1 = l_surp_grads_1_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:310 in update_surprise, code: return new_surprise.detach().clamp(-clamp_w, clamp_w)[0m
+        detach_1: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = new_surprise_1.detach();  [2mnew_surprise_1 = None[0m
+        clamp_1: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = detach_1.clamp([34m-100.0[0m, [34m100.0[0m);  [2mdetach_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:306 in update_surprise, code: old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))[0m
+        zeros_like_2: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch.zeros_like(l_current_params_mlps_0_1_bias_);  [2ml_current_params_mlps_0_1_bias_ = zeros_like_2 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:308 in update_surprise, code: new_surprise = q_T[idx] * old_surprise - grad[0m
+        getitem_2: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = l_q_t_[[34m0[0m]
+        mul_2: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = getitem_2 * l_surprises_mlps_0_1_bias_;  [2mgetitem_2 = l_surprises_mlps_0_1_bias_ = None[0m
+        new_surprise_2: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = mul_2 - l_surp_grads_2_;  [2mmul_2 = l_surp_grads_2_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:310 in update_surprise, code: return new_surprise.detach().clamp(-clamp_w, clamp_w)[0m
+        detach_2: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = new_surprise_2.detach();  [2mnew_surprise_2 = None[0m
+        clamp_2: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = detach_2.clamp([34m-100.0[0m, [34m100.0[0m);  [2mdetach_2 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:306 in update_surprise, code: old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))[0m
+        zeros_like_3: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.zeros_like(l_current_params_mlps_0_3_weight_);  [2ml_current_params_mlps_0_3_weight_ = zeros_like_3 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:308 in update_surprise, code: new_surprise = q_T[idx] * old_surprise - grad[0m
+        getitem_3: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = l_q_t_[[34m0[0m]
+        mul_3: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = getitem_3 * l_surprises_mlps_0_3_weight_;  [2mgetitem_3 = l_surprises_mlps_0_3_weight_ = None[0m
+        new_surprise_3: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = mul_3 - l_surp_grads_3_;  [2mmul_3 = l_surp_grads_3_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:310 in update_surprise, code: return new_surprise.detach().clamp(-clamp_w, clamp_w)[0m
+        detach_3: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = new_surprise_3.detach();  [2mnew_surprise_3 = None[0m
+        clamp_3: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = detach_3.clamp([34m-100.0[0m, [34m100.0[0m);  [2mdetach_3 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:306 in update_surprise, code: old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))[0m
+        zeros_like_4: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch.zeros_like(l_current_params_mlps_0_3_bias_);  [2ml_current_params_mlps_0_3_bias_ = zeros_like_4 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:308 in update_surprise, code: new_surprise = q_T[idx] * old_surprise - grad[0m
+        getitem_4: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = l_q_t_[[34m0[0m]
+        mul_4: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = getitem_4 * l_surprises_mlps_0_3_bias_;  [2mgetitem_4 = l_surprises_mlps_0_3_bias_ = None[0m
+        new_surprise_4: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = mul_4 - l_surp_grads_4_;  [2mmul_4 = l_surp_grads_4_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:310 in update_surprise, code: return new_surprise.detach().clamp(-clamp_w, clamp_w)[0m
+        detach_4: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = new_surprise_4.detach();  [2mnew_surprise_4 = None[0m
+        clamp_4: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = detach_4.clamp([34m-100.0[0m, [34m100.0[0m);  [2mdetach_4 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:306 in update_surprise, code: old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))[0m
+        zeros_like_5: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch.zeros_like(l_current_params_mlps_0_4_weight_);  [2ml_current_params_mlps_0_4_weight_ = zeros_like_5 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:308 in update_surprise, code: new_surprise = q_T[idx] * old_surprise - grad[0m
+        getitem_5: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = l_q_t_[[34m0[0m]
+        mul_5: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = getitem_5 * l_surprises_mlps_0_4_weight_;  [2mgetitem_5 = l_surprises_mlps_0_4_weight_ = None[0m
+        new_surprise_5: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = mul_5 - l_surp_grads_5_;  [2mmul_5 = l_surp_grads_5_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:310 in update_surprise, code: return new_surprise.detach().clamp(-clamp_w, clamp_w)[0m
+        detach_5: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = new_surprise_5.detach();  [2mnew_surprise_5 = None[0m
+        clamp_5: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = detach_5.clamp([34m-100.0[0m, [34m100.0[0m);  [2mdetach_5 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:306 in update_surprise, code: old_surprise = surprises.get(name, torch.zeros_like(current_params[name]))[0m
+        zeros_like_6: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch.zeros_like(l_current_params_mlps_0_4_bias_);  [2ml_current_params_mlps_0_4_bias_ = zeros_like_6 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:308 in update_surprise, code: new_surprise = q_T[idx] * old_surprise - grad[0m
+        getitem_6: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = l_q_t_[[34m0[0m];  [2ml_q_t_ = None[0m
+        mul_6: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = getitem_6 * l_surprises_mlps_0_4_bias_;  [2mgetitem_6 = l_surprises_mlps_0_4_bias_ = None[0m
+        new_surprise_6: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = mul_6 - l_surp_grads_6_;  [2mmul_6 = l_surp_grads_6_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:310 in update_surprise, code: return new_surprise.detach().clamp(-clamp_w, clamp_w)[0m
+        detach_6: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = new_surprise_6.detach();  [2mnew_surprise_6 = None[0m
+        clamp_6: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = detach_6.clamp([34m-100.0[0m, [34m100.0[0m);  [2mdetach_6 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:322 in torch_dynamo_resume_in_update_memory_at_312, code: mse = sqerr.sum(dim=-1).mean()[0m
+        sum_1: "[31mf32[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = l_sqerr_.sum(dim = [34m-1[0m);  [2ml_sqerr_ = None[0m
+        mse: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = sum_1.mean();  [2msum_1 = None[0m
+        return (clamp, clamp_1, clamp_2, clamp_3, clamp_4, clamp_5, clamp_6, mse)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_87 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_self_modules_Q_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_x_: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_1_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_1_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_3_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_3_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_4_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_4_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_self_modules_q_parameters_weight_ = L_self_modules_Q_parameters_weight_
+        l_x_ = L_x_
+        l_self_mlp_states_2_mlps_0_0_weight_ = L_self_mlp_states_2_mlps_0_0_weight_
+        l_self_mlp_states_2_mlps_0_1_weight_ = L_self_mlp_states_2_mlps_0_1_weight_
+        l_self_mlp_states_2_mlps_0_1_bias_ = L_self_mlp_states_2_mlps_0_1_bias_
+        l_self_mlp_states_2_mlps_0_3_weight_ = L_self_mlp_states_2_mlps_0_3_weight_
+        l_self_mlp_states_2_mlps_0_3_bias_ = L_self_mlp_states_2_mlps_0_3_bias_
+        l_self_mlp_states_2_mlps_0_4_weight_ = L_self_mlp_states_2_mlps_0_4_weight_
+        l_self_mlp_states_2_mlps_0_4_bias_ = L_self_mlp_states_2_mlps_0_4_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:490 in forward, code: queries = self.silu(self.Q(x))[0m
+        linear: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_q_parameters_weight_, [34mNone[0m);  [2ml_x_ = l_self_modules_q_parameters_weight_ = None[0m
+        queries: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:497 in forward, code: queries = F.normalize(queries, eps=1e-8) # Normalize after convolution[0m
+        queries_1: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(queries, eps = [34m1e-08[0m);  [2mqueries = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:87 in <listcomp>, code: outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])][0m
+        getitem: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = queries_1[[34m0[0m]
+        input_1: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(getitem, l_self_mlp_states_2_mlps_0_0_weight_, [34mNone[0m);  [2mgetitem = l_self_mlp_states_2_mlps_0_0_weight_ = None[0m
+        input_2: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_1, ([34m2048[0m,), l_self_mlp_states_2_mlps_0_1_weight_, l_self_mlp_states_2_mlps_0_1_bias_, [34m1e-05[0m);  [2minput_1 = l_self_mlp_states_2_mlps_0_1_weight_ = l_self_mlp_states_2_mlps_0_1_bias_ = None[0m
+        input_3: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(input_2, inplace = [34mFalse[0m);  [2minput_2 = None[0m
+        input_4: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(input_3, l_self_mlp_states_2_mlps_0_3_weight_, l_self_mlp_states_2_mlps_0_3_bias_);  [2minput_3 = l_self_mlp_states_2_mlps_0_3_weight_ = l_self_mlp_states_2_mlps_0_3_bias_ = None[0m
+        input_5: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_4, ([34m2048[0m,), l_self_mlp_states_2_mlps_0_4_weight_, l_self_mlp_states_2_mlps_0_4_bias_, [34m0.0001[0m);  [2minput_4 = l_self_mlp_states_2_mlps_0_4_weight_ = l_self_mlp_states_2_mlps_0_4_bias_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:88 in forward, code: return torch.stack(outputs, dim=0) + x  # residual connection[0m
+        stack: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.stack([input_5], dim = [34m0[0m);  [2minput_5 = None[0m
+        outputs: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = stack + queries_1;  [2mstack = queries_1 = None[0m
+        return (outputs,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_90 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_parameters_persistent_tokens_: "[31mf32[0m[34m[4, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_K_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_V_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_parameters_persistent_tokens_ = L_self_parameters_persistent_tokens_
+        l_self_modules_k_parameters_weight_ = L_self_modules_K_parameters_weight_
+        l_self_modules_v_parameters_weight_ = L_self_modules_V_parameters_weight_
+        l_self_modules_alpha_parameters_weight_ = L_self_modules_alpha_parameters_weight_
+        l_self_modules_alpha_parameters_bias_ = L_self_modules_alpha_parameters_bias_
+        l_self_modules_eta_parameters_weight_ = L_self_modules_eta_parameters_weight_
+        l_self_modules_eta_parameters_bias_ = L_self_modules_eta_parameters_bias_
+        l_self_modules_theta_parameters_weight_ = L_self_modules_theta_parameters_weight_
+        l_self_modules_theta_parameters_bias_ = L_self_modules_theta_parameters_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:512 in update, code: z = x.detach()[0m
+        z: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.detach();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:518 in update, code: repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)[0m
+        repeated_persistent_tokens: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = l_self_parameters_persistent_tokens_.unsqueeze([34m0[0m);  [2ml_self_parameters_persistent_tokens_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:521 in update, code: repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)[0m
+        repeated_persistent_tokens_1: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = repeated_persistent_tokens.expand([34m1[0m, [34m-1[0m, [34m-1[0m);  [2mrepeated_persistent_tokens = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:524 in update, code: z = torch.cat([repeated_persistent_tokens, z], dim=1)[0m
+        z_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.cat([repeated_persistent_tokens_1, z], dim = [34m1[0m);  [2mrepeated_persistent_tokens_1 = z = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:527 in update, code: keys = self.silu(self.K(z))[0m
+        linear: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_k_parameters_weight_, [34mNone[0m);  [2ml_self_modules_k_parameters_weight_ = None[0m
+        keys: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:528 in update, code: values = self.silu(self.V(z))[0m
+        linear_1: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_v_parameters_weight_, [34mNone[0m);  [2mz_1 = l_self_modules_v_parameters_weight_ = None[0m
+        values: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear_1, inplace = [34mFalse[0m);  [2mlinear_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:543 in update, code: keys = F.normalize(keys, eps=1e-8)[0m
+        keys_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(keys, eps = [34m1e-08[0m);  [2mkeys = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:544 in update, code: values = F.normalize(values, eps=1e-8)[0m
+        values_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(values, eps = [34m1e-08[0m);  [2mvalues = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:547 in update, code: beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)[0m
+        linear_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_alpha_parameters_weight_, l_self_modules_alpha_parameters_bias_);  [2ml_self_modules_alpha_parameters_weight_ = l_self_modules_alpha_parameters_bias_ = None[0m
+        sigmoid: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_2);  [2mlinear_2 = None[0m
+        squeeze: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid.squeeze([34m-1[0m);  [2msigmoid = None[0m
+        mul: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.015[0m * squeeze;  [2msqueeze = None[0m
+        beta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul;  [2mmul = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:548 in update, code: eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_3: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_eta_parameters_weight_, l_self_modules_eta_parameters_bias_);  [2ml_self_modules_eta_parameters_weight_ = l_self_modules_eta_parameters_bias_ = None[0m
+        sigmoid_1: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_3);  [2mlinear_3 = None[0m
+        squeeze_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_1.squeeze([34m-1[0m);  [2msigmoid_1 = None[0m
+        mul_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.1[0m * squeeze_1;  [2msqueeze_1 = None[0m
+        eta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul_1;  [2mmul_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:549 in update, code: theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_4: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_theta_parameters_weight_, l_self_modules_theta_parameters_bias_);  [2ml_self_modules_theta_parameters_weight_ = l_self_modules_theta_parameters_bias_ = None[0m
+        sigmoid_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_4);  [2mlinear_4 = None[0m
+        squeeze_2: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_2.squeeze([34m-1[0m);  [2msigmoid_2 = None[0m
+        theta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.0003[0m * squeeze_2;  [2msqueeze_2 = None[0m
+        return (keys_1, values_1, beta_vec, eta_vec, theta_vec)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_93 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_self_modules_Q_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_x_: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_1_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_1_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_3_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_3_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_4_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_4_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_self_modules_q_parameters_weight_ = L_self_modules_Q_parameters_weight_
+        l_x_ = L_x_
+        l_self_mlp_states_3_mlps_0_0_weight_ = L_self_mlp_states_3_mlps_0_0_weight_
+        l_self_mlp_states_3_mlps_0_1_weight_ = L_self_mlp_states_3_mlps_0_1_weight_
+        l_self_mlp_states_3_mlps_0_1_bias_ = L_self_mlp_states_3_mlps_0_1_bias_
+        l_self_mlp_states_3_mlps_0_3_weight_ = L_self_mlp_states_3_mlps_0_3_weight_
+        l_self_mlp_states_3_mlps_0_3_bias_ = L_self_mlp_states_3_mlps_0_3_bias_
+        l_self_mlp_states_3_mlps_0_4_weight_ = L_self_mlp_states_3_mlps_0_4_weight_
+        l_self_mlp_states_3_mlps_0_4_bias_ = L_self_mlp_states_3_mlps_0_4_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:490 in forward, code: queries = self.silu(self.Q(x))[0m
+        linear: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_q_parameters_weight_, [34mNone[0m);  [2ml_x_ = l_self_modules_q_parameters_weight_ = None[0m
+        queries: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:497 in forward, code: queries = F.normalize(queries, eps=1e-8) # Normalize after convolution[0m
+        queries_1: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(queries, eps = [34m1e-08[0m);  [2mqueries = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:87 in <listcomp>, code: outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])][0m
+        getitem: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = queries_1[[34m0[0m]
+        input_1: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(getitem, l_self_mlp_states_3_mlps_0_0_weight_, [34mNone[0m);  [2mgetitem = l_self_mlp_states_3_mlps_0_0_weight_ = None[0m
+        input_2: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_1, ([34m2048[0m,), l_self_mlp_states_3_mlps_0_1_weight_, l_self_mlp_states_3_mlps_0_1_bias_, [34m1e-05[0m);  [2minput_1 = l_self_mlp_states_3_mlps_0_1_weight_ = l_self_mlp_states_3_mlps_0_1_bias_ = None[0m
+        input_3: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(input_2, inplace = [34mFalse[0m);  [2minput_2 = None[0m
+        input_4: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(input_3, l_self_mlp_states_3_mlps_0_3_weight_, l_self_mlp_states_3_mlps_0_3_bias_);  [2minput_3 = l_self_mlp_states_3_mlps_0_3_weight_ = l_self_mlp_states_3_mlps_0_3_bias_ = None[0m
+        input_5: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_4, ([34m2048[0m,), l_self_mlp_states_3_mlps_0_4_weight_, l_self_mlp_states_3_mlps_0_4_bias_, [34m0.0001[0m);  [2minput_4 = l_self_mlp_states_3_mlps_0_4_weight_ = l_self_mlp_states_3_mlps_0_4_bias_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:88 in forward, code: return torch.stack(outputs, dim=0) + x  # residual connection[0m
+        stack: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.stack([input_5], dim = [34m0[0m);  [2minput_5 = None[0m
+        outputs: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = stack + queries_1;  [2mstack = queries_1 = None[0m
+        return (outputs,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_96 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_parameters_persistent_tokens_: "[31mf32[0m[34m[4, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_K_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_V_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_parameters_persistent_tokens_ = L_self_parameters_persistent_tokens_
+        l_self_modules_k_parameters_weight_ = L_self_modules_K_parameters_weight_
+        l_self_modules_v_parameters_weight_ = L_self_modules_V_parameters_weight_
+        l_self_modules_alpha_parameters_weight_ = L_self_modules_alpha_parameters_weight_
+        l_self_modules_alpha_parameters_bias_ = L_self_modules_alpha_parameters_bias_
+        l_self_modules_eta_parameters_weight_ = L_self_modules_eta_parameters_weight_
+        l_self_modules_eta_parameters_bias_ = L_self_modules_eta_parameters_bias_
+        l_self_modules_theta_parameters_weight_ = L_self_modules_theta_parameters_weight_
+        l_self_modules_theta_parameters_bias_ = L_self_modules_theta_parameters_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:512 in update, code: z = x.detach()[0m
+        z: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.detach();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:518 in update, code: repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)[0m
+        repeated_persistent_tokens: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = l_self_parameters_persistent_tokens_.unsqueeze([34m0[0m);  [2ml_self_parameters_persistent_tokens_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:521 in update, code: repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)[0m
+        repeated_persistent_tokens_1: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = repeated_persistent_tokens.expand([34m1[0m, [34m-1[0m, [34m-1[0m);  [2mrepeated_persistent_tokens = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:524 in update, code: z = torch.cat([repeated_persistent_tokens, z], dim=1)[0m
+        z_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.cat([repeated_persistent_tokens_1, z], dim = [34m1[0m);  [2mrepeated_persistent_tokens_1 = z = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:527 in update, code: keys = self.silu(self.K(z))[0m
+        linear: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_k_parameters_weight_, [34mNone[0m);  [2ml_self_modules_k_parameters_weight_ = None[0m
+        keys: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:528 in update, code: values = self.silu(self.V(z))[0m
+        linear_1: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_v_parameters_weight_, [34mNone[0m);  [2mz_1 = l_self_modules_v_parameters_weight_ = None[0m
+        values: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear_1, inplace = [34mFalse[0m);  [2mlinear_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:543 in update, code: keys = F.normalize(keys, eps=1e-8)[0m
+        keys_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(keys, eps = [34m1e-08[0m);  [2mkeys = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:544 in update, code: values = F.normalize(values, eps=1e-8)[0m
+        values_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(values, eps = [34m1e-08[0m);  [2mvalues = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:547 in update, code: beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)[0m
+        linear_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_alpha_parameters_weight_, l_self_modules_alpha_parameters_bias_);  [2ml_self_modules_alpha_parameters_weight_ = l_self_modules_alpha_parameters_bias_ = None[0m
+        sigmoid: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_2);  [2mlinear_2 = None[0m
+        squeeze: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid.squeeze([34m-1[0m);  [2msigmoid = None[0m
+        mul: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.015[0m * squeeze;  [2msqueeze = None[0m
+        beta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul;  [2mmul = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:548 in update, code: eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_3: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_eta_parameters_weight_, l_self_modules_eta_parameters_bias_);  [2ml_self_modules_eta_parameters_weight_ = l_self_modules_eta_parameters_bias_ = None[0m
+        sigmoid_1: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_3);  [2mlinear_3 = None[0m
+        squeeze_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_1.squeeze([34m-1[0m);  [2msigmoid_1 = None[0m
+        mul_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.1[0m * squeeze_1;  [2msqueeze_1 = None[0m
+        eta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul_1;  [2mmul_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:549 in update, code: theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_4: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_theta_parameters_weight_, l_self_modules_theta_parameters_bias_);  [2ml_self_modules_theta_parameters_weight_ = l_self_modules_theta_parameters_bias_ = None[0m
+        sigmoid_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_4);  [2mlinear_4 = None[0m
+        squeeze_2: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_2.squeeze([34m-1[0m);  [2msigmoid_2 = None[0m
+        theta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.0003[0m * squeeze_2;  [2msqueeze_2 = None[0m
+        return (keys_1, values_1, beta_vec, eta_vec, theta_vec)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_100 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mf32[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_w_q_parameters_weight_: "[31mbf16[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_w_k_parameters_weight_: "[31mbf16[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_w_v_parameters_weight_: "[31mbf16[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_q_norm_parameters_weight_: "[31mbf16[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_k_norm_parameters_weight_: "[31mbf16[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_modules_w_q_parameters_weight_ = L_self_modules_w_q_parameters_weight_
+        l_self_modules_w_k_parameters_weight_ = L_self_modules_w_k_parameters_weight_
+        l_self_modules_w_v_parameters_weight_ = L_self_modules_w_v_parameters_weight_
+        l_self_modules_q_norm_parameters_weight_ = L_self_modules_q_norm_parameters_weight_
+        l_self_modules_k_norm_parameters_weight_ = L_self_modules_k_norm_parameters_weight_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:496 in forward, code: q, k, v = self.w_q(x), self.w_k(x), self.w_v(x)[0m
+        q: "[31mbf16[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_w_q_parameters_weight_, [34mNone[0m);  [2ml_self_modules_w_q_parameters_weight_ = None[0m
+        k: "[31mbf16[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_w_k_parameters_weight_, [34mNone[0m);  [2ml_self_modules_w_k_parameters_weight_ = None[0m
+        v: "[31mbf16[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_w_v_parameters_weight_, [34mNone[0m);  [2ml_x_ = l_self_modules_w_v_parameters_weight_ = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:203 in forward, code: x = x.float()[0m
+        x: "[31mf32[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = q.float();  [2mq = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:205 in forward, code: variance = x.pow(2).mean(-1, keepdim=True)[0m
+        pow_1: "[31mf32[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = x.pow([34m2[0m)
+        variance: "[31mf32[0m[34m[1, 132, 1][0m[2m[34m[132, 1, 1][0m[2m[32mcuda:0[0m" = pow_1.mean([34m-1[0m, keepdim = [34mTrue[0m);  [2mpow_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:206 in forward, code: x = x * torch.rsqrt(variance + self.eps)[0m
+        add: "[31mf32[0m[34m[1, 132, 1][0m[2m[34m[132, 1, 1][0m[2m[32mcuda:0[0m" = variance + [34m1e-06[0m;  [2mvariance = None[0m
+        rsqrt: "[31mf32[0m[34m[1, 132, 1][0m[2m[34m[132, 1, 1][0m[2m[32mcuda:0[0m" = torch.rsqrt(add);  [2madd = None[0m
+        x_1: "[31mf32[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = x * rsqrt;  [2mx = rsqrt = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:212 in forward, code: x = self.weight.type_as(x) * x[0m
+        type_as: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_self_modules_q_norm_parameters_weight_.type_as(x_1);  [2ml_self_modules_q_norm_parameters_weight_ = None[0m
+        x_2: "[31mf32[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = type_as * x_1;  [2mtype_as = x_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:214 in forward, code: return x.to(og_dtype)[0m
+        q_1: "[31mbf16[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = x_2.to([34mtorch.bfloat16[0m);  [2mx_2 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast = torch.amp.autocast_mode._exit_autocast(_enter_autocast);  [2m_enter_autocast = _exit_autocast = None[0m
+        _enter_autocast_1 = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:203 in forward, code: x = x.float()[0m
+        x_3: "[31mf32[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = k.float();  [2mk = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:205 in forward, code: variance = x.pow(2).mean(-1, keepdim=True)[0m
+        pow_2: "[31mf32[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = x_3.pow([34m2[0m)
+        variance_1: "[31mf32[0m[34m[1, 132, 1][0m[2m[34m[132, 1, 1][0m[2m[32mcuda:0[0m" = pow_2.mean([34m-1[0m, keepdim = [34mTrue[0m);  [2mpow_2 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:206 in forward, code: x = x * torch.rsqrt(variance + self.eps)[0m
+        add_1: "[31mf32[0m[34m[1, 132, 1][0m[2m[34m[132, 1, 1][0m[2m[32mcuda:0[0m" = variance_1 + [34m1e-06[0m;  [2mvariance_1 = None[0m
+        rsqrt_1: "[31mf32[0m[34m[1, 132, 1][0m[2m[34m[132, 1, 1][0m[2m[32mcuda:0[0m" = torch.rsqrt(add_1);  [2madd_1 = None[0m
+        x_4: "[31mf32[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = x_3 * rsqrt_1;  [2mx_3 = rsqrt_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:212 in forward, code: x = self.weight.type_as(x) * x[0m
+        type_as_1: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_self_modules_k_norm_parameters_weight_.type_as(x_4);  [2ml_self_modules_k_norm_parameters_weight_ = None[0m
+        x_5: "[31mf32[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = type_as_1 * x_4;  [2mtype_as_1 = x_4 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:214 in forward, code: return x.to(og_dtype)[0m
+        k_1: "[31mbf16[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = x_5.to([34mtorch.bfloat16[0m);  [2mx_5 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast_1 = torch.amp.autocast_mode._exit_autocast(_enter_autocast_1);  [2m_enter_autocast_1 = _exit_autocast_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:511 in forward, code: q = q.view(B, T, -1, self.head_dim)[0m
+        q_2: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = q_1.view([34m1[0m, [34m132[0m, [34m-1[0m, [34m128[0m);  [2mq_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:513 in forward, code: k = k.view(B, T, -1, self.head_dim)[0m
+        k_2: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = k_1.view([34m1[0m, [34m132[0m, [34m-1[0m, [34m128[0m);  [2mk_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:515 in forward, code: v = v.view(B, T, -1, self.head_dim)[0m
+        v_1: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = v.view([34m1[0m, [34m132[0m, [34m-1[0m, [34m128[0m);  [2mv = None[0m
+        return (q_2, k_2, v_1)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_104 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_q_: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m", L_k_: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m"):
+        l_q_ = L_q_
+        l_k_ = L_k_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:261 in forward, code: q_, k_ = q.float(), k.float()[0m
+        q_: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = l_q_.float();  [2ml_q_ = None[0m
+        k_: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = l_k_.float();  [2ml_k_ = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        _exit_autocast = torch.amp.autocast_mode._exit_autocast(_enter_autocast);  [2m_enter_autocast = _exit_autocast = None[0m
+        return (k_, q_)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_109 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self):
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:204 in _get_rotary_embedding, code: ** (torch.arange(0, self.dim, 2, device=device, dtype=torch.float) / self.dim)[0m
+        arange: "[31mf32[0m[34m[64][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch.arange([34m0[0m, [34m128[0m, [34m2[0m, device = [34mdevice(type='cuda', index=0)[0m, dtype = [34mtorch.float32[0m)
+        truediv: "[31mf32[0m[34m[64][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = arange / [34m128[0m;  [2marange = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:203 in _get_rotary_embedding, code: self.theta[0m
+        pow_1: "[31mf32[0m[34m[64][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = [34m500000[0m ** truediv;  [2mtruediv = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:202 in _get_rotary_embedding, code: inv_freq = 1.0 / ([0m
+        inv_freq: "[31mf32[0m[34m[64][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = [34m1.0[0m / pow_1;  [2mpow_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:208 in _get_rotary_embedding, code: seq = torch.arange(seq_len, device=device, dtype=torch.float)[0m
+        seq: "[31mf32[0m[34m[132][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch.arange([34m132[0m, device = [34mdevice(type='cuda', index=0)[0m, dtype = [34mtorch.float32[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:209 in _get_rotary_embedding, code: freqs = torch.einsum("i , j -> i j", seq, inv_freq)[0m
+        freqs: "[31mf32[0m[34m[132, 64][0m[2m[34m[64, 1][0m[2m[32mcuda:0[0m" = torch.functional.einsum([34m'i , j -> i j'[0m, seq, inv_freq);  [2mseq = inv_freq = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:210 in _get_rotary_embedding, code: positions = torch.cat((freqs, freqs), dim=-1)[0m
+        positions: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = torch.cat((freqs, freqs), dim = [34m-1[0m);  [2mfreqs = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:211 in _get_rotary_embedding, code: pos_sin, pos_cos = positions.sin(), positions.cos()[0m
+        pos_sin: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = positions.sin()
+        pos_cos: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = positions.cos();  [2mpositions = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast = torch.amp.autocast_mode._exit_autocast(_enter_autocast);  [2m_enter_autocast = _exit_autocast = None[0m
+        return (pos_sin, pos_cos)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_116 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_stack1_0_: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m", L_stack1_1_: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m", L_q_: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m", L_k_: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m", L_q__0: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m", L_k__0: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m"):
+        l_stack1_0_ = L_stack1_0_
+        l_stack1_1_ = L_stack1_1_
+        l_q_ = L_q_
+        l_k_ = L_k_
+        l_q__0 = L_q__0
+        l_k__0 = L_k__0
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:269 in torch_dynamo_resume_in_forward_at_268, code: pos_sin, pos_cos = pos_sin.type_as(q_), pos_cos.type_as(q_)[0m
+        pos_sin: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = l_stack1_0_.type_as(l_q_);  [2ml_stack1_0_ = None[0m
+        pos_cos: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = l_stack1_1_.type_as(l_q_);  [2ml_stack1_1_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:282 in torch_dynamo_resume_in_forward_at_268, code: pos_sin[None, k_len - q_len : k_len, None, :],[0m
+        getitem: "[31mf32[0m[34m[1, 132, 1, 128][0m[2m[34m[16896, 128, 128, 1][0m[2m[32mcuda:0[0m" = pos_sin[([34mNone[0m, slice([34m0[0m, [34m132[0m, [34mNone[0m), [34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m))]
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:283 in torch_dynamo_resume_in_forward_at_268, code: pos_cos[None, k_len - q_len : k_len, None, :],[0m
+        getitem_1: "[31mf32[0m[34m[1, 132, 1, 128][0m[2m[34m[16896, 128, 128, 1][0m[2m[32mcuda:0[0m" = pos_cos[([34mNone[0m, slice([34m0[0m, [34m132[0m, [34mNone[0m), [34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m))]
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:227 in _apply_rotary_pos_emb, code: return ((t * pos_cos) + (self._rotate_half(t) * pos_sin)).to(t.dtype)[0m
+        mul: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = l_q_ * getitem_1;  [2mgetitem_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:220 in _rotate_half, code: x = x.view(B, nh, T, 2, hs // 2)[0m
+        x: "[31mf32[0m[34m[1, 132, 16, 2, 64][0m[2m[34m[270336, 2048, 128, 64, 1][0m[2m[32mcuda:0[0m" = l_q_.view([34m1[0m, [34m132[0m, [34m16[0m, [34m2[0m, [34m64[0m);  [2ml_q_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:221 in _rotate_half, code: x1, x2 = x.unbind(dim=-2)[0m
+        unbind = x.unbind(dim = [34m-2[0m);  [2mx = None[0m
+        x1: "[31mf32[0m[34m[1, 132, 16, 64][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = unbind[[34m0[0m]
+        x2: "[31mf32[0m[34m[1, 132, 16, 64][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = unbind[[34m1[0m];  [2munbind = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:222 in _rotate_half, code: return torch.cat((-x2, x1), dim=-1)[0m
+        neg: "[31mf32[0m[34m[1, 132, 16, 64][0m[2m[34m[135168, 1024, 64, 1][0m[2m[32mcuda:0[0m" = -x2;  [2mx2 = None[0m
+        cat: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = torch.cat((neg, x1), dim = [34m-1[0m);  [2mneg = x1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:227 in _apply_rotary_pos_emb, code: return ((t * pos_cos) + (self._rotate_half(t) * pos_sin)).to(t.dtype)[0m
+        mul_1: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = cat * getitem;  [2mcat = getitem = None[0m
+        add: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = mul + mul_1;  [2mmul = mul_1 = None[0m
+        q_: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = add.to([34mtorch.float32[0m);  [2madd = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:287 in torch_dynamo_resume_in_forward_at_268, code: pos_sin[None, :, None, :], pos_cos[None, :, None, :], k_[0m
+        getitem_4: "[31mf32[0m[34m[1, 132, 1, 128][0m[2m[34m[16896, 128, 128, 1][0m[2m[32mcuda:0[0m" = pos_sin[([34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m), [34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2mpos_sin = None[0m
+        getitem_5: "[31mf32[0m[34m[1, 132, 1, 128][0m[2m[34m[16896, 128, 128, 1][0m[2m[32mcuda:0[0m" = pos_cos[([34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m), [34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2mpos_cos = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:227 in _apply_rotary_pos_emb, code: return ((t * pos_cos) + (self._rotate_half(t) * pos_sin)).to(t.dtype)[0m
+        mul_2: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = l_k_ * getitem_5;  [2mgetitem_5 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:220 in _rotate_half, code: x = x.view(B, nh, T, 2, hs // 2)[0m
+        x_1: "[31mf32[0m[34m[1, 132, 16, 2, 64][0m[2m[34m[270336, 2048, 128, 64, 1][0m[2m[32mcuda:0[0m" = l_k_.view([34m1[0m, [34m132[0m, [34m16[0m, [34m2[0m, [34m64[0m);  [2ml_k_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:221 in _rotate_half, code: x1, x2 = x.unbind(dim=-2)[0m
+        unbind_1 = x_1.unbind(dim = [34m-2[0m);  [2mx_1 = None[0m
+        x1_1: "[31mf32[0m[34m[1, 132, 16, 64][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = unbind_1[[34m0[0m]
+        x2_1: "[31mf32[0m[34m[1, 132, 16, 64][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = unbind_1[[34m1[0m];  [2munbind_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:222 in _rotate_half, code: return torch.cat((-x2, x1), dim=-1)[0m
+        neg_1: "[31mf32[0m[34m[1, 132, 16, 64][0m[2m[34m[135168, 1024, 64, 1][0m[2m[32mcuda:0[0m" = -x2_1;  [2mx2_1 = None[0m
+        cat_1: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = torch.cat((neg_1, x1_1), dim = [34m-1[0m);  [2mneg_1 = x1_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:227 in _apply_rotary_pos_emb, code: return ((t * pos_cos) + (self._rotate_half(t) * pos_sin)).to(t.dtype)[0m
+        mul_3: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = cat_1 * getitem_4;  [2mcat_1 = getitem_4 = None[0m
+        add_1: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = mul_2 + mul_3;  [2mmul_2 = mul_3 = None[0m
+        k_: "[31mf32[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = add_1.to([34mtorch.float32[0m);  [2madd_1 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast = torch.amp.autocast_mode._exit_autocast(_enter_autocast);  [2m_enter_autocast = _exit_autocast = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:290 in torch_dynamo_resume_in_forward_at_268, code: return q_.type_as(q), k_.type_as(k)[0m
+        type_as_2: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = q_.type_as(l_q__0);  [2mq_ = l_q__0 = None[0m
+        type_as_3: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = k_.type_as(l_k__0);  [2mk_ = l_k__0 = None[0m
+        return (type_as_2, type_as_3)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_118 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_stack0_0_: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m", L_stack0_1_: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m", L_v_: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m", L_self_modules_w_out_parameters_weight_: "[31mbf16[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m"):
+        l_stack0_0_ = L_stack0_0_
+        l_stack0_1_ = L_stack0_1_
+        l_v_ = L_v_
+        l_self_modules_w_out_parameters_weight_ = L_self_modules_w_out_parameters_weight_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/flash_attn_api.py:59 in dispatch_paddle_flash_attn, code: q_idx = torch.arange(T_q, device=q.device).view(1, 1, T_q, 1)[0m
+        arange: "[31mi64[0m[34m[16][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch.arange([34m16[0m, device = [34mdevice(type='cuda', index=0)[0m)
+        q_idx: "[31mi64[0m[34m[1, 1, 16, 1][0m[2m[34m[16, 16, 1, 1][0m[2m[32mcuda:0[0m" = arange.view([34m1[0m, [34m1[0m, [34m16[0m, [34m1[0m);  [2marange = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/flash_attn_api.py:60 in dispatch_paddle_flash_attn, code: kv_idx = torch.arange(T_k, device=k.device).view(1, 1, 1, T_k)[0m
+        arange_1: "[31mi64[0m[34m[16][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch.arange([34m16[0m, device = [34mdevice(type='cuda', index=0)[0m)
+        kv_idx: "[31mi64[0m[34m[1, 1, 1, 16][0m[2m[34m[16, 16, 16, 1][0m[2m[32mcuda:0[0m" = arange_1.view([34m1[0m, [34m1[0m, [34m1[0m, [34m16[0m);  [2marange_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/flash_attn_api.py:23 in sliding_window_causal_idx, code: causal_mask = q_idx >= kv_idx[0m
+        causal_mask: "[31mb8[0m[34m[1, 1, 16, 16][0m[2m[34m[256, 256, 16, 1][0m[2m[32mcuda:0[0m" = q_idx >= kv_idx
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/flash_attn_api.py:24 in sliding_window_causal_idx, code: window_mask = q_idx - kv_idx <= sliding_window[0m
+        sub: "[31mi64[0m[34m[1, 1, 16, 16][0m[2m[34m[256, 256, 16, 1][0m[2m[32mcuda:0[0m" = q_idx - kv_idx;  [2mq_idx = None[0m
+        window_mask: "[31mb8[0m[34m[1, 1, 16, 16][0m[2m[34m[256, 256, 16, 1][0m[2m[32mcuda:0[0m" = sub <= [34m64[0m;  [2msub = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/flash_attn_api.py:25 in sliding_window_causal_idx, code: persistent_mask = kv_idx <= persistent_tokens[0m
+        persistent_mask: "[31mb8[0m[34m[1, 1, 1, 16][0m[2m[34m[16, 16, 16, 1][0m[2m[32mcuda:0[0m" = kv_idx <= [34m4[0m;  [2mkv_idx = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/flash_attn_api.py:26 in sliding_window_causal_idx, code: return causal_mask & (window_mask | persistent_mask)[0m
+        or_: "[31mb8[0m[34m[1, 1, 16, 16][0m[2m[34m[256, 256, 16, 1][0m[2m[32mcuda:0[0m" = window_mask | persistent_mask;  [2mwindow_mask = persistent_mask = None[0m
+        attn_mask_bool: "[31mb8[0m[34m[1, 1, 16, 16][0m[2m[34m[256, 256, 16, 1][0m[2m[32mcuda:0[0m" = causal_mask & or_;  [2mcausal_mask = or_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/flash_attn_api.py:75 in dispatch_paddle_flash_attn, code: attn_mask_for_sdpa = ~attn_mask_bool[0m
+        attn_mask_for_sdpa: "[31mb8[0m[34m[1, 1, 16, 16][0m[2m[34m[256, 256, 16, 1][0m[2m[32mcuda:0[0m" = ~attn_mask_bool;  [2mattn_mask_bool = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/flash_attn_api.py:78 in dispatch_paddle_flash_attn, code: out = torch.nn.functional.scaled_dot_product_attention([0m
+        out: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 128, 16896, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.scaled_dot_product_attention(l_stack0_0_, l_stack0_1_, l_v_, attn_mask = attn_mask_for_sdpa, dropout_p = [34m0.0[0m, is_causal = [34mFalse[0m, scale = [34mNone[0m);  [2ml_stack0_0_ = l_stack0_1_ = l_v_ = attn_mask_for_sdpa = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/flash_attn_api.py:88 in dispatch_paddle_flash_attn, code: return out.contiguous()[0m
+        att: "[31mbf16[0m[34m[1, 132, 16, 128][0m[2m[34m[270336, 2048, 128, 1][0m[2m[32mcuda:0[0m" = out.contiguous();  [2mout = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:546 in torch_dynamo_resume_in_forward_at_524, code: att = att.view(B, T, -1)[0m
+        att_1: "[31mbf16[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = att.view([34m1[0m, [34m132[0m, [34m-1[0m);  [2matt = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:549 in torch_dynamo_resume_in_forward_at_524, code: return self.w_out(att)[0m
+        linear: "[31mbf16[0m[34m[1, 132, 2048][0m[2m[34m[270336, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(att_1, l_self_modules_w_out_parameters_weight_, [34mNone[0m);  [2matt_1 = l_self_modules_w_out_parameters_weight_ = None[0m
+        return (linear,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_122 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_parameters_weight_: "[31mbf16[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_parameters_weight_ = L_self_parameters_weight_
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:203 in forward, code: x = x.float()[0m
+        x: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.float();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:205 in forward, code: variance = x.pow(2).mean(-1, keepdim=True)[0m
+        pow_1: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x.pow([34m2[0m)
+        variance: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = pow_1.mean([34m-1[0m, keepdim = [34mTrue[0m);  [2mpow_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:206 in forward, code: x = x * torch.rsqrt(variance + self.eps)[0m
+        add: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = variance + [34m1e-06[0m;  [2mvariance = None[0m
+        rsqrt: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = torch.rsqrt(add);  [2madd = None[0m
+        x_1: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x * rsqrt;  [2mx = rsqrt = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:212 in forward, code: x = self.weight.type_as(x) * x[0m
+        type_as: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_self_parameters_weight_.type_as(x_1);  [2ml_self_parameters_weight_ = None[0m
+        x_2: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = type_as * x_1;  [2mtype_as = x_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:214 in forward, code: return x.to(og_dtype)[0m
+        to: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_2.to([34mtorch.float32[0m);  [2mx_2 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast = torch.amp.autocast_mode._exit_autocast(_enter_autocast);  [2m_enter_autocast = _exit_autocast = None[0m
+        return (to,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_124 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_self_modules_w1_parameters_weight_: "[31mbf16[0m[34m[8192, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_x_: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_w3_parameters_weight_: "[31mbf16[0m[34m[8192, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_w2_parameters_weight_: "[31mbf16[0m[34m[2048, 8192][0m[2m[34m[8192, 1][0m[2m[32mcuda:0[0m"):
+        l_self_modules_w1_parameters_weight_ = L_self_modules_w1_parameters_weight_
+        l_x_ = L_x_
+        l_self_modules_w3_parameters_weight_ = L_self_modules_w3_parameters_weight_
+        l_self_modules_w2_parameters_weight_ = L_self_modules_w2_parameters_weight_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/feed_forward.py:128 in forward, code: return self.w2(F.silu(self.w1(x)) * self.w3(x))[0m
+        linear: "[31mbf16[0m[34m[1, 128, 8192][0m[2m[34m[1048576, 8192, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_w1_parameters_weight_, [34mNone[0m);  [2ml_self_modules_w1_parameters_weight_ = None[0m
+        silu: "[31mbf16[0m[34m[1, 128, 8192][0m[2m[34m[1048576, 8192, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear);  [2mlinear = None[0m
+        linear_1: "[31mbf16[0m[34m[1, 128, 8192][0m[2m[34m[1048576, 8192, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_w3_parameters_weight_, [34mNone[0m);  [2ml_x_ = l_self_modules_w3_parameters_weight_ = None[0m
+        mul: "[31mbf16[0m[34m[1, 128, 8192][0m[2m[34m[1048576, 8192, 1][0m[2m[32mcuda:0[0m" = silu * linear_1;  [2msilu = linear_1 = None[0m
+        linear_2: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(mul, l_self_modules_w2_parameters_weight_, [34mNone[0m);  [2mmul = l_self_modules_w2_parameters_weight_ = None[0m
+        return (linear_2,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_126 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_parameters_weight_: "[31mbf16[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_parameters_weight_ = L_self_parameters_weight_
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:203 in forward, code: x = x.float()[0m
+        x: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.float();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:205 in forward, code: variance = x.pow(2).mean(-1, keepdim=True)[0m
+        pow_1: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x.pow([34m2[0m)
+        variance: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = pow_1.mean([34m-1[0m, keepdim = [34mTrue[0m);  [2mpow_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:206 in forward, code: x = x * torch.rsqrt(variance + self.eps)[0m
+        add: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = variance + [34m1e-06[0m;  [2mvariance = None[0m
+        rsqrt: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = torch.rsqrt(add);  [2madd = None[0m
+        x_1: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x * rsqrt;  [2mx = rsqrt = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:212 in forward, code: x = self.weight.type_as(x) * x[0m
+        type_as: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_self_parameters_weight_.type_as(x_1);  [2ml_self_parameters_weight_ = None[0m
+        x_2: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = type_as * x_1;  [2mtype_as = x_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:214 in forward, code: return x.to(og_dtype)[0m
+        to: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_2.to([34mtorch.bfloat16[0m);  [2mx_2 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast = torch.amp.autocast_mode._exit_autocast(_enter_autocast);  [2m_enter_autocast = _exit_autocast = None[0m
+        return (to,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_128 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_attention_modules_w_q_parameters_weight_: "[31mbf16[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_attention_modules_w_k_parameters_weight_: "[31mbf16[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_attention_modules_w_v_parameters_weight_: "[31mbf16[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_attention_modules_q_norm_parameters_weight_: "[31mbf16[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_attention_modules_k_norm_parameters_weight_: "[31mbf16[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", _odict_getitem_L_self_modules_attention_modules_rope_cache_rope_pos_sin_: "[31mf32[0m[34m[128, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m", _odict_getitem_L_self_modules_attention_modules_rope_cache_rope_pos_cos_: "[31mf32[0m[34m[128, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m", L_self_modules_attention_modules_w_out_parameters_weight_: "[31mbf16[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_attention_norm_parameters_weight_: "[31mbf16[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_feed_forward_modules_w1_parameters_weight_: "[31mbf16[0m[34m[8192, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_feed_forward_modules_w3_parameters_weight_: "[31mbf16[0m[34m[8192, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_feed_forward_modules_w2_parameters_weight_: "[31mbf16[0m[34m[2048, 8192][0m[2m[34m[8192, 1][0m[2m[32mcuda:0[0m", L_self_modules_feed_forward_norm_parameters_weight_: "[31mbf16[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_modules_attention_modules_w_q_parameters_weight_ = L_self_modules_attention_modules_w_q_parameters_weight_
+        l_self_modules_attention_modules_w_k_parameters_weight_ = L_self_modules_attention_modules_w_k_parameters_weight_
+        l_self_modules_attention_modules_w_v_parameters_weight_ = L_self_modules_attention_modules_w_v_parameters_weight_
+        l_self_modules_attention_modules_q_norm_parameters_weight_ = L_self_modules_attention_modules_q_norm_parameters_weight_
+        l_self_modules_attention_modules_k_norm_parameters_weight_ = L_self_modules_attention_modules_k_norm_parameters_weight_
+        _odict_getitem_l_self_modules_attention_modules_rope_cache_rope_pos_sin_ = _odict_getitem_L_self_modules_attention_modules_rope_cache_rope_pos_sin_
+        _odict_getitem_l_self_modules_attention_modules_rope_cache_rope_pos_cos_ = _odict_getitem_L_self_modules_attention_modules_rope_cache_rope_pos_cos_
+        l_self_modules_attention_modules_w_out_parameters_weight_ = L_self_modules_attention_modules_w_out_parameters_weight_
+        l_self_modules_attention_norm_parameters_weight_ = L_self_modules_attention_norm_parameters_weight_
+        l_self_modules_feed_forward_modules_w1_parameters_weight_ = L_self_modules_feed_forward_modules_w1_parameters_weight_
+        l_self_modules_feed_forward_modules_w3_parameters_weight_ = L_self_modules_feed_forward_modules_w3_parameters_weight_
+        l_self_modules_feed_forward_modules_w2_parameters_weight_ = L_self_modules_feed_forward_modules_w2_parameters_weight_
+        l_self_modules_feed_forward_norm_parameters_weight_ = L_self_modules_feed_forward_norm_parameters_weight_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:491 in forward, code: B, T, _ = x.shape[0m
+        size = l_x_.size()
+        getitem_1: "Sym(128)" = size[[34m1[0m];  [2msize = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:496 in forward, code: q, k, v = self.w_q(x), self.w_k(x), self.w_v(x)[0m
+        q: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_attention_modules_w_q_parameters_weight_, [34mNone[0m);  [2ml_self_modules_attention_modules_w_q_parameters_weight_ = None[0m
+        k: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_attention_modules_w_k_parameters_weight_, [34mNone[0m);  [2ml_self_modules_attention_modules_w_k_parameters_weight_ = None[0m
+        v: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_attention_modules_w_v_parameters_weight_, [34mNone[0m);  [2ml_self_modules_attention_modules_w_v_parameters_weight_ = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:203 in forward, code: x = x.float()[0m
+        x: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = q.float();  [2mq = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:205 in forward, code: variance = x.pow(2).mean(-1, keepdim=True)[0m
+        pow_1: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x.pow([34m2[0m)
+        variance: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = pow_1.mean([34m-1[0m, keepdim = [34mTrue[0m);  [2mpow_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:206 in forward, code: x = x * torch.rsqrt(variance + self.eps)[0m
+        add: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = variance + [34m1e-06[0m;  [2mvariance = None[0m
+        rsqrt: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = torch.rsqrt(add);  [2madd = None[0m
+        x_1: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x * rsqrt;  [2mx = rsqrt = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:212 in forward, code: x = self.weight.type_as(x) * x[0m
+        type_as: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_self_modules_attention_modules_q_norm_parameters_weight_.type_as(x_1);  [2ml_self_modules_attention_modules_q_norm_parameters_weight_ = None[0m
+        x_2: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = type_as * x_1;  [2mtype_as = x_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:214 in forward, code: return x.to(og_dtype)[0m
+        q_1: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_2.to([34mtorch.bfloat16[0m);  [2mx_2 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast = torch.amp.autocast_mode._exit_autocast(_enter_autocast);  [2m_enter_autocast = _exit_autocast = None[0m
+        _enter_autocast_1 = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:203 in forward, code: x = x.float()[0m
+        x_3: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = k.float();  [2mk = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:205 in forward, code: variance = x.pow(2).mean(-1, keepdim=True)[0m
+        pow_2: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_3.pow([34m2[0m)
+        variance_1: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = pow_2.mean([34m-1[0m, keepdim = [34mTrue[0m);  [2mpow_2 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:206 in forward, code: x = x * torch.rsqrt(variance + self.eps)[0m
+        add_1: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = variance_1 + [34m1e-06[0m;  [2mvariance_1 = None[0m
+        rsqrt_1: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = torch.rsqrt(add_1);  [2madd_1 = None[0m
+        x_4: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_3 * rsqrt_1;  [2mx_3 = rsqrt_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:212 in forward, code: x = self.weight.type_as(x) * x[0m
+        type_as_1: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_self_modules_attention_modules_k_norm_parameters_weight_.type_as(x_4);  [2ml_self_modules_attention_modules_k_norm_parameters_weight_ = None[0m
+        x_5: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = type_as_1 * x_4;  [2mtype_as_1 = x_4 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:214 in forward, code: return x.to(og_dtype)[0m
+        k_1: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_5.to([34mtorch.bfloat16[0m);  [2mx_5 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast_1 = torch.amp.autocast_mode._exit_autocast(_enter_autocast_1);  [2m_enter_autocast_1 = _exit_autocast_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:511 in forward, code: q = q.view(B, T, -1, self.head_dim)[0m
+        q_2: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = q_1.view([34m1[0m, getitem_1, [34m-1[0m, [34m128[0m);  [2mq_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:513 in forward, code: k = k.view(B, T, -1, self.head_dim)[0m
+        k_2: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = k_1.view([34m1[0m, getitem_1, [34m-1[0m, [34m128[0m);  [2mk_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:515 in forward, code: v = v.view(B, T, -1, self.head_dim)[0m
+        v_1: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = v.view([34m1[0m, getitem_1, [34m-1[0m, [34m128[0m);  [2mv = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:257 in forward, code: q_len = q.size(1)[0m
+        size_1: "Sym(128)" = q_2.size([34m1[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:258 in forward, code: k_len = k.size(1)[0m
+        size_2: "Sym(128)" = k_2.size([34m1[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:261 in forward, code: q_, k_ = q.float(), k.float()[0m
+        q_: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = q_2.float()
+        k_: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = k_2.float()
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast_2 = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:199 in _get_rotary_embedding, code: return pos_sin[:seq_len, :], pos_cos[:seq_len, :][0m
+        pos_sin: "[31mf32[0m[34m[128, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = _odict_getitem_l_self_modules_attention_modules_rope_cache_rope_pos_sin_[(slice([34mNone[0m, size_2, [34mNone[0m), slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2m_odict_getitem_l_self_modules_attention_modules_rope_cache_rope_pos_sin_ = None[0m
+        pos_cos: "[31mf32[0m[34m[128, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = _odict_getitem_l_self_modules_attention_modules_rope_cache_rope_pos_cos_[(slice([34mNone[0m, size_2, [34mNone[0m), slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2m_odict_getitem_l_self_modules_attention_modules_rope_cache_rope_pos_cos_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:269 in forward, code: pos_sin, pos_cos = pos_sin.type_as(q_), pos_cos.type_as(q_)[0m
+        pos_sin_1: "[31mf32[0m[34m[128, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = pos_sin.type_as(q_);  [2mpos_sin = None[0m
+        pos_cos_1: "[31mf32[0m[34m[128, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = pos_cos.type_as(q_);  [2mpos_cos = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:282 in forward, code: pos_sin[None, k_len - q_len : k_len, None, :],[0m
+        sub: "Sym(0)" = size_2 - size_1
+        getitem_5: "[31mf32[0m[34m[1, 128, 1, 128][0m[2m[34m[16384, 128, 128, 1][0m[2m[32mcuda:0[0m" = pos_sin_1[([34mNone[0m, slice(sub, size_2, [34mNone[0m), [34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2msub = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:283 in forward, code: pos_cos[None, k_len - q_len : k_len, None, :],[0m
+        sub_1: "Sym(0)" = size_2 - size_1;  [2msize_1 = None[0m
+        getitem_6: "[31mf32[0m[34m[1, 128, 1, 128][0m[2m[34m[16384, 128, 128, 1][0m[2m[32mcuda:0[0m" = pos_cos_1[([34mNone[0m, slice(sub_1, size_2, [34mNone[0m), [34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2msub_1 = size_2 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:227 in _apply_rotary_pos_emb, code: return ((t * pos_cos) + (self._rotate_half(t) * pos_sin)).to(t.dtype)[0m
+        mul_4: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = q_ * getitem_6;  [2mgetitem_6 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:220 in _rotate_half, code: x = x.view(B, nh, T, 2, hs // 2)[0m
+        x_6: "[31mf32[0m[34m[1, 128, 16, 2, 64][0m[2m[34m[262144, 2048, 128, 64, 1][0m[2m[32mcuda:0[0m" = q_.view([34m1[0m, [34m128[0m, [34m16[0m, [34m2[0m, [34m64[0m);  [2mq_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:221 in _rotate_half, code: x1, x2 = x.unbind(dim=-2)[0m
+        unbind = x_6.unbind(dim = [34m-2[0m);  [2mx_6 = None[0m
+        x1: "[31mf32[0m[34m[1, 128, 16, 64][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = unbind[[34m0[0m]
+        x2: "[31mf32[0m[34m[1, 128, 16, 64][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = unbind[[34m1[0m];  [2munbind = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:222 in _rotate_half, code: return torch.cat((-x2, x1), dim=-1)[0m
+        neg: "[31mf32[0m[34m[1, 128, 16, 64][0m[2m[34m[131072, 1024, 64, 1][0m[2m[32mcuda:0[0m" = -x2;  [2mx2 = None[0m
+        cat: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = torch.cat((neg, x1), dim = [34m-1[0m);  [2mneg = x1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:227 in _apply_rotary_pos_emb, code: return ((t * pos_cos) + (self._rotate_half(t) * pos_sin)).to(t.dtype)[0m
+        mul_5: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = cat * getitem_5;  [2mcat = getitem_5 = None[0m
+        add_2: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = mul_4 + mul_5;  [2mmul_4 = mul_5 = None[0m
+        q__1: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = add_2.to([34mtorch.float32[0m);  [2madd_2 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:287 in forward, code: pos_sin[None, :, None, :], pos_cos[None, :, None, :], k_[0m
+        getitem_9: "[31mf32[0m[34m[1, 128, 1, 128][0m[2m[34m[16384, 128, 128, 1][0m[2m[32mcuda:0[0m" = pos_sin_1[([34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m), [34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2mpos_sin_1 = None[0m
+        getitem_10: "[31mf32[0m[34m[1, 128, 1, 128][0m[2m[34m[16384, 128, 128, 1][0m[2m[32mcuda:0[0m" = pos_cos_1[([34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m), [34mNone[0m, slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2mpos_cos_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:227 in _apply_rotary_pos_emb, code: return ((t * pos_cos) + (self._rotate_half(t) * pos_sin)).to(t.dtype)[0m
+        mul_6: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = k_ * getitem_10;  [2mgetitem_10 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:220 in _rotate_half, code: x = x.view(B, nh, T, 2, hs // 2)[0m
+        x_7: "[31mf32[0m[34m[1, 128, 16, 2, 64][0m[2m[34m[262144, 2048, 128, 64, 1][0m[2m[32mcuda:0[0m" = k_.view([34m1[0m, [34m128[0m, [34m16[0m, [34m2[0m, [34m64[0m);  [2mk_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:221 in _rotate_half, code: x1, x2 = x.unbind(dim=-2)[0m
+        unbind_1 = x_7.unbind(dim = [34m-2[0m);  [2mx_7 = None[0m
+        x1_1: "[31mf32[0m[34m[1, 128, 16, 64][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = unbind_1[[34m0[0m]
+        x2_1: "[31mf32[0m[34m[1, 128, 16, 64][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = unbind_1[[34m1[0m];  [2munbind_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:222 in _rotate_half, code: return torch.cat((-x2, x1), dim=-1)[0m
+        neg_1: "[31mf32[0m[34m[1, 128, 16, 64][0m[2m[34m[131072, 1024, 64, 1][0m[2m[32mcuda:0[0m" = -x2_1;  [2mx2_1 = None[0m
+        cat_1: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = torch.cat((neg_1, x1_1), dim = [34m-1[0m);  [2mneg_1 = x1_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:227 in _apply_rotary_pos_emb, code: return ((t * pos_cos) + (self._rotate_half(t) * pos_sin)).to(t.dtype)[0m
+        mul_7: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = cat_1 * getitem_9;  [2mcat_1 = getitem_9 = None[0m
+        add_3: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = mul_6 + mul_7;  [2mmul_6 = mul_7 = None[0m
+        k__1: "[31mf32[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = add_3.to([34mtorch.float32[0m);  [2madd_3 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast_2 = torch.amp.autocast_mode._exit_autocast(_enter_autocast_2);  [2m_enter_autocast_2 = _exit_autocast_2 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:290 in forward, code: return q_.type_as(q), k_.type_as(k)[0m
+        q_3: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = q__1.type_as(q_2);  [2mq__1 = q_2 = None[0m
+        k_3: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = k__1.type_as(k_2);  [2mk__1 = k_2 = None[0m
+        
+         [2m# File: /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/flash_attn/flash_attn_interface.py:1201 in flash_attn_func, code: return FlashAttnFunc.apply([0m
+        function_ctx = torch.autograd.function.FunctionCtx();  [2mfunction_ctx = None[0m
+        fwd_body_0 = self.fwd_body_0
+        bwd_body_0 = self.bwd_body_0
+        att: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = torch.ops.higher_order.autograd_function_apply(fwd_body_0, bwd_body_0, q_3, k_3, v_1, args_tensor_mask = [[34mTrue[0m, [34mTrue[0m, [34mTrue[0m, [34mFalse[0m, [34mFalse[0m, [34mFalse[0m, [34mFalse[0m, [34mFalse[0m, [34mFalse[0m, [34mFalse[0m, [34mFalse[0m, [34mFalse[0m], non_differentiable_idx = []);  [2mfwd_body_0 = bwd_body_0 = q_3 = k_3 = v_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:546 in forward, code: att = att.view(B, T, -1)[0m
+        att_1: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = att.view([34m1[0m, getitem_1, [34m-1[0m);  [2matt = getitem_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/attention/__init__.py:549 in forward, code: return self.w_out(att)[0m
+        linear_3: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(att_1, l_self_modules_attention_modules_w_out_parameters_weight_, [34mNone[0m);  [2matt_1 = l_self_modules_attention_modules_w_out_parameters_weight_ = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast_3 = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:203 in forward, code: x = x.float()[0m
+        x_8: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = linear_3.float();  [2mlinear_3 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:205 in forward, code: variance = x.pow(2).mean(-1, keepdim=True)[0m
+        pow_3: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_8.pow([34m2[0m)
+        variance_2: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = pow_3.mean([34m-1[0m, keepdim = [34mTrue[0m);  [2mpow_3 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:206 in forward, code: x = x * torch.rsqrt(variance + self.eps)[0m
+        add_4: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = variance_2 + [34m1e-06[0m;  [2mvariance_2 = None[0m
+        rsqrt_2: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = torch.rsqrt(add_4);  [2madd_4 = None[0m
+        x_9: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_8 * rsqrt_2;  [2mx_8 = rsqrt_2 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:212 in forward, code: x = self.weight.type_as(x) * x[0m
+        type_as_6: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_self_modules_attention_norm_parameters_weight_.type_as(x_9);  [2ml_self_modules_attention_norm_parameters_weight_ = None[0m
+        x_10: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = type_as_6 * x_9;  [2mtype_as_6 = x_9 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:214 in forward, code: return x.to(og_dtype)[0m
+        to_4: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_10.to([34mtorch.bfloat16[0m);  [2mx_10 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast_3 = torch.amp.autocast_mode._exit_autocast(_enter_autocast_3);  [2m_enter_autocast_3 = _exit_autocast_3 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/transformer/block.py:205 in forward, code: h = x + self.dropout(self.attention_norm(self.attention(x, **kwargs)))[0m
+        h: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_ + to_4;  [2ml_x_ = to_4 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/feed_forward.py:128 in forward, code: return self.w2(F.silu(self.w1(x)) * self.w3(x))[0m
+        linear_4: "[31mbf16[0m[34m[1, 128, 8192][0m[2m[34m[1048576, 8192, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(h, l_self_modules_feed_forward_modules_w1_parameters_weight_, [34mNone[0m);  [2ml_self_modules_feed_forward_modules_w1_parameters_weight_ = None[0m
+        silu: "[31mbf16[0m[34m[1, 128, 8192][0m[2m[34m[1048576, 8192, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear_4);  [2mlinear_4 = None[0m
+        linear_5: "[31mbf16[0m[34m[1, 128, 8192][0m[2m[34m[1048576, 8192, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(h, l_self_modules_feed_forward_modules_w3_parameters_weight_, [34mNone[0m);  [2ml_self_modules_feed_forward_modules_w3_parameters_weight_ = None[0m
+        mul_10: "[31mbf16[0m[34m[1, 128, 8192][0m[2m[34m[1048576, 8192, 1][0m[2m[32mcuda:0[0m" = silu * linear_5;  [2msilu = linear_5 = None[0m
+        linear_6: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(mul_10, l_self_modules_feed_forward_modules_w2_parameters_weight_, [34mNone[0m);  [2mmul_10 = l_self_modules_feed_forward_modules_w2_parameters_weight_ = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast_4 = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:203 in forward, code: x = x.float()[0m
+        x_11: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = linear_6.float();  [2mlinear_6 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:205 in forward, code: variance = x.pow(2).mean(-1, keepdim=True)[0m
+        pow_4: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_11.pow([34m2[0m)
+        variance_3: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = pow_4.mean([34m-1[0m, keepdim = [34mTrue[0m);  [2mpow_4 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:206 in forward, code: x = x * torch.rsqrt(variance + self.eps)[0m
+        add_6: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = variance_3 + [34m1e-06[0m;  [2mvariance_3 = None[0m
+        rsqrt_3: "[31mf32[0m[34m[1, 128, 1][0m[2m[34m[128, 1, 1][0m[2m[32mcuda:0[0m" = torch.rsqrt(add_6);  [2madd_6 = None[0m
+        x_12: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_11 * rsqrt_3;  [2mx_11 = rsqrt_3 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:212 in forward, code: x = self.weight.type_as(x) * x[0m
+        type_as_7: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_self_modules_feed_forward_norm_parameters_weight_.type_as(x_12);  [2ml_self_modules_feed_forward_norm_parameters_weight_ = None[0m
+        x_13: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = type_as_7 * x_12;  [2mtype_as_7 = x_12 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:214 in forward, code: return x.to(og_dtype)[0m
+        to_5: "[31mbf16[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = x_13.to([34mtorch.bfloat16[0m);  [2mx_13 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast_4 = torch.amp.autocast_mode._exit_autocast(_enter_autocast_4);  [2m_enter_autocast_4 = _exit_autocast_4 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/transformer/block.py:206 in forward, code: return h + self.dropout(self.feed_forward_norm(self.feed_forward(h)))[0m
+        add_7: "[31mf32[0m[34m[1, 128, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = h + to_5;  [2mh = to_5 = None[0m
+        return (add_7,)
+        
+    class fwd_body_0(torch.nn.Module):
+        def forward(self, ctx : torch.autograd.function.Function, q: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m", k: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m", v: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m"):
+            [2m# No stacktrace found for following nodes[0m
+            _set_grad_enabled = torch._C._set_grad_enabled([34mFalse[0m);  [2m_set_grad_enabled = None[0m
+            
+             [2m# File: /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/flash_attn/flash_attn_interface.py:839 in forward, code: out_padded, softmax_lse, S_dmask, rng_state = _wrapped_flash_attn_forward([0m
+            _flash_attn_forward = torch.ops.flash_attn._flash_attn_forward(q, k, v, [34m0.0[0m, [34m0.08838834764831845[0m, causal = [34mTrue[0m, window_size_left = [34m64[0m, window_size_right = [34m0[0m, softcap = [34m0.0[0m, alibi_slopes = [34mNone[0m, return_softmax = [34mFalse[0m)
+            out_padded: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = _flash_attn_forward[[34m0[0m]
+            softmax_lse: "[31mf32[0m[34m[1, 16, 128][0m[2m[34m[2048, 128, 1][0m[2m[32mcuda:0[0m" = _flash_attn_forward[[34m1[0m]
+            S_dmask: "[31mbf16[0m[34m[0][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = _flash_attn_forward[[34m2[0m];  [2mS_dmask = None[0m
+            rng_state: "[31mi64[0m[34m[2][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = _flash_attn_forward[[34m3[0m];  [2m_flash_attn_forward = None[0m
+            
+             [2m# File: /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/flash_attn/flash_attn_interface.py:861 in forward, code: out = out_padded[..., :head_size_og][0m
+            out: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = out_padded[([34mEllipsis[0m, slice([34mNone[0m, [34m128[0m, [34mNone[0m))]
+            
+            [2m# No stacktrace found for following nodes[0m
+            _set_grad_enabled_1 = torch._C._set_grad_enabled([34mTrue[0m);  [2m_set_grad_enabled_1 = None[0m
+            return (out, [q, k, v, out_padded, softmax_lse, rng_state])
+            
+    class bwd_body_0(torch.nn.Module):
+        def forward(self, function_ctx : torch.autograd.function.Function, out: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m", q: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m", k: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m", v: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m", out_padded: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m", softmax_lse: "[31mf32[0m[34m[1, 16, 128][0m[2m[34m[2048, 128, 1][0m[2m[32mcuda:0[0m", rng_state: "[31mi64[0m[34m[2][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+            [2m# No stacktrace found for following nodes[0m
+            _set_grad_enabled = torch._C._set_grad_enabled([34mFalse[0m);  [2m_set_grad_enabled = None[0m
+            
+             [2m# File: /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/flash_attn/flash_attn_interface.py:867 in backward, code: dq, dk, dv = torch.empty_like(q), torch.empty_like(k), torch.empty_like(v)[0m
+            dq: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = torch.empty_like(q)
+            dk: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = torch.empty_like(k)
+            dv: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = torch.empty_like(v)
+            
+             [2m# File: /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/flash_attn/flash_attn_interface.py:872 in backward, code: _wrapped_flash_attn_backward([0m
+            _flash_attn_backward: "[31mf32[0m[34m[1, 16, 128][0m[2m[34m[2048, 128, 1][0m[2m[32mcuda:0[0m" = torch.ops.flash_attn._flash_attn_backward(out, q, k, v, out_padded, softmax_lse, dq, dk, dv, [34m0.0[0m, [34m0.08838834764831845[0m, [34mTrue[0m, [34m64[0m, [34m0[0m, [34m0.0[0m, [34mNone[0m, [34mFalse[0m, rng_state = rng_state);  [2mout = q = k = v = out_padded = softmax_lse = rng_state = _flash_attn_backward = None[0m
+            
+             [2m# File: /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/flash_attn/flash_attn_interface.py:892 in backward, code: dq = dq[..., : dout.shape[-1]]  # We could have padded the head dimension[0m
+            dq_1: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = dq[([34mEllipsis[0m, slice([34mNone[0m, [34m128[0m, [34mNone[0m))];  [2mdq = None[0m
+            
+             [2m# File: /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/flash_attn/flash_attn_interface.py:893 in backward, code: dk = dk[..., : dout.shape[-1]][0m
+            dk_1: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = dk[([34mEllipsis[0m, slice([34mNone[0m, [34m128[0m, [34mNone[0m))];  [2mdk = None[0m
+            
+             [2m# File: /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/flash_attn/flash_attn_interface.py:894 in backward, code: dv = dv[..., : dout.shape[-1]][0m
+            dv_1: "[31mbf16[0m[34m[1, 128, 16, 128][0m[2m[34m[262144, 2048, 128, 1][0m[2m[32mcuda:0[0m" = dv[([34mEllipsis[0m, slice([34mNone[0m, [34m128[0m, [34mNone[0m))];  [2mdv = None[0m
+            
+            [2m# No stacktrace found for following nodes[0m
+            _set_grad_enabled_1 = torch._C._set_grad_enabled([34mTrue[0m);  [2m_set_grad_enabled_1 = None[0m
+            return (dq_1, dk_1, dv_1)
+            
+
+TRACED GRAPH
+ ===== __compiled_fn_133 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self):
+        return ()
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_142 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_self_modules_Q_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_x_: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_0_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_0_mlps_0_1_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_0_mlps_0_1_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_0_mlps_0_3_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_0_mlps_0_3_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_0_mlps_0_4_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_0_mlps_0_4_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_self_modules_q_parameters_weight_ = L_self_modules_Q_parameters_weight_
+        l_x_ = L_x_
+        l_self_mlp_states_0_mlps_0_0_weight_ = L_self_mlp_states_0_mlps_0_0_weight_
+        l_self_mlp_states_0_mlps_0_1_weight_ = L_self_mlp_states_0_mlps_0_1_weight_
+        l_self_mlp_states_0_mlps_0_1_bias_ = L_self_mlp_states_0_mlps_0_1_bias_
+        l_self_mlp_states_0_mlps_0_3_weight_ = L_self_mlp_states_0_mlps_0_3_weight_
+        l_self_mlp_states_0_mlps_0_3_bias_ = L_self_mlp_states_0_mlps_0_3_bias_
+        l_self_mlp_states_0_mlps_0_4_weight_ = L_self_mlp_states_0_mlps_0_4_weight_
+        l_self_mlp_states_0_mlps_0_4_bias_ = L_self_mlp_states_0_mlps_0_4_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:490 in forward, code: queries = self.silu(self.Q(x))[0m
+        linear: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_q_parameters_weight_, [34mNone[0m);  [2ml_x_ = l_self_modules_q_parameters_weight_ = None[0m
+        queries: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:497 in forward, code: queries = F.normalize(queries, eps=1e-8) # Normalize after convolution[0m
+        queries_1: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(queries, eps = [34m1e-08[0m);  [2mqueries = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:87 in <listcomp>, code: outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])][0m
+        getitem: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = queries_1[[34m0[0m]
+        input_1: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(getitem, l_self_mlp_states_0_mlps_0_0_weight_, [34mNone[0m);  [2mgetitem = l_self_mlp_states_0_mlps_0_0_weight_ = None[0m
+        input_2: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_1, ([34m2048[0m,), l_self_mlp_states_0_mlps_0_1_weight_, l_self_mlp_states_0_mlps_0_1_bias_, [34m1e-05[0m);  [2minput_1 = l_self_mlp_states_0_mlps_0_1_weight_ = l_self_mlp_states_0_mlps_0_1_bias_ = None[0m
+        input_3: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(input_2, inplace = [34mFalse[0m);  [2minput_2 = None[0m
+        input_4: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(input_3, l_self_mlp_states_0_mlps_0_3_weight_, l_self_mlp_states_0_mlps_0_3_bias_);  [2minput_3 = l_self_mlp_states_0_mlps_0_3_weight_ = l_self_mlp_states_0_mlps_0_3_bias_ = None[0m
+        input_5: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_4, ([34m2048[0m,), l_self_mlp_states_0_mlps_0_4_weight_, l_self_mlp_states_0_mlps_0_4_bias_, [34m0.0001[0m);  [2minput_4 = l_self_mlp_states_0_mlps_0_4_weight_ = l_self_mlp_states_0_mlps_0_4_bias_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:88 in forward, code: return torch.stack(outputs, dim=0) + x  # residual connection[0m
+        stack: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.stack([input_5], dim = [34m0[0m);  [2minput_5 = None[0m
+        outputs: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = stack + queries_1;  [2mstack = queries_1 = None[0m
+        return (outputs,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_145 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_parameters_persistent_tokens_: "[31mf32[0m[34m[4, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_K_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_V_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_parameters_persistent_tokens_ = L_self_parameters_persistent_tokens_
+        l_self_modules_k_parameters_weight_ = L_self_modules_K_parameters_weight_
+        l_self_modules_v_parameters_weight_ = L_self_modules_V_parameters_weight_
+        l_self_modules_alpha_parameters_weight_ = L_self_modules_alpha_parameters_weight_
+        l_self_modules_alpha_parameters_bias_ = L_self_modules_alpha_parameters_bias_
+        l_self_modules_eta_parameters_weight_ = L_self_modules_eta_parameters_weight_
+        l_self_modules_eta_parameters_bias_ = L_self_modules_eta_parameters_bias_
+        l_self_modules_theta_parameters_weight_ = L_self_modules_theta_parameters_weight_
+        l_self_modules_theta_parameters_bias_ = L_self_modules_theta_parameters_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:512 in update, code: z = x.detach()[0m
+        z: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.detach();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:518 in update, code: repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)[0m
+        repeated_persistent_tokens: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = l_self_parameters_persistent_tokens_.unsqueeze([34m0[0m);  [2ml_self_parameters_persistent_tokens_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:521 in update, code: repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)[0m
+        repeated_persistent_tokens_1: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = repeated_persistent_tokens.expand([34m1[0m, [34m-1[0m, [34m-1[0m);  [2mrepeated_persistent_tokens = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:524 in update, code: z = torch.cat([repeated_persistent_tokens, z], dim=1)[0m
+        z_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.cat([repeated_persistent_tokens_1, z], dim = [34m1[0m);  [2mrepeated_persistent_tokens_1 = z = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:527 in update, code: keys = self.silu(self.K(z))[0m
+        linear: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_k_parameters_weight_, [34mNone[0m);  [2ml_self_modules_k_parameters_weight_ = None[0m
+        keys: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:528 in update, code: values = self.silu(self.V(z))[0m
+        linear_1: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_v_parameters_weight_, [34mNone[0m);  [2mz_1 = l_self_modules_v_parameters_weight_ = None[0m
+        values: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear_1, inplace = [34mFalse[0m);  [2mlinear_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:543 in update, code: keys = F.normalize(keys, eps=1e-8)[0m
+        keys_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(keys, eps = [34m1e-08[0m);  [2mkeys = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:544 in update, code: values = F.normalize(values, eps=1e-8)[0m
+        values_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(values, eps = [34m1e-08[0m);  [2mvalues = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:547 in update, code: beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)[0m
+        linear_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_alpha_parameters_weight_, l_self_modules_alpha_parameters_bias_);  [2ml_self_modules_alpha_parameters_weight_ = l_self_modules_alpha_parameters_bias_ = None[0m
+        sigmoid: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_2);  [2mlinear_2 = None[0m
+        squeeze: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid.squeeze([34m-1[0m);  [2msigmoid = None[0m
+        mul: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.015[0m * squeeze;  [2msqueeze = None[0m
+        beta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul;  [2mmul = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:548 in update, code: eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_3: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_eta_parameters_weight_, l_self_modules_eta_parameters_bias_);  [2ml_self_modules_eta_parameters_weight_ = l_self_modules_eta_parameters_bias_ = None[0m
+        sigmoid_1: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_3);  [2mlinear_3 = None[0m
+        squeeze_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_1.squeeze([34m-1[0m);  [2msigmoid_1 = None[0m
+        mul_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.1[0m * squeeze_1;  [2msqueeze_1 = None[0m
+        eta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul_1;  [2mmul_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:549 in update, code: theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_4: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_theta_parameters_weight_, l_self_modules_theta_parameters_bias_);  [2ml_self_modules_theta_parameters_weight_ = l_self_modules_theta_parameters_bias_ = None[0m
+        sigmoid_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_4);  [2mlinear_4 = None[0m
+        squeeze_2: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_2.squeeze([34m-1[0m);  [2msigmoid_2 = None[0m
+        theta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.0003[0m * squeeze_2;  [2msqueeze_2 = None[0m
+        return (keys_1, values_1, beta_vec, eta_vec, theta_vec)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_148 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_self_modules_Q_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_x_: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_1_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_1_mlps_0_1_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_1_mlps_0_1_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_1_mlps_0_3_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_1_mlps_0_3_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_1_mlps_0_4_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_1_mlps_0_4_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_self_modules_q_parameters_weight_ = L_self_modules_Q_parameters_weight_
+        l_x_ = L_x_
+        l_self_mlp_states_1_mlps_0_0_weight_ = L_self_mlp_states_1_mlps_0_0_weight_
+        l_self_mlp_states_1_mlps_0_1_weight_ = L_self_mlp_states_1_mlps_0_1_weight_
+        l_self_mlp_states_1_mlps_0_1_bias_ = L_self_mlp_states_1_mlps_0_1_bias_
+        l_self_mlp_states_1_mlps_0_3_weight_ = L_self_mlp_states_1_mlps_0_3_weight_
+        l_self_mlp_states_1_mlps_0_3_bias_ = L_self_mlp_states_1_mlps_0_3_bias_
+        l_self_mlp_states_1_mlps_0_4_weight_ = L_self_mlp_states_1_mlps_0_4_weight_
+        l_self_mlp_states_1_mlps_0_4_bias_ = L_self_mlp_states_1_mlps_0_4_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:490 in forward, code: queries = self.silu(self.Q(x))[0m
+        linear: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_q_parameters_weight_, [34mNone[0m);  [2ml_x_ = l_self_modules_q_parameters_weight_ = None[0m
+        queries: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:497 in forward, code: queries = F.normalize(queries, eps=1e-8) # Normalize after convolution[0m
+        queries_1: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(queries, eps = [34m1e-08[0m);  [2mqueries = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:87 in <listcomp>, code: outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])][0m
+        getitem: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = queries_1[[34m0[0m]
+        input_1: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(getitem, l_self_mlp_states_1_mlps_0_0_weight_, [34mNone[0m);  [2mgetitem = l_self_mlp_states_1_mlps_0_0_weight_ = None[0m
+        input_2: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_1, ([34m2048[0m,), l_self_mlp_states_1_mlps_0_1_weight_, l_self_mlp_states_1_mlps_0_1_bias_, [34m1e-05[0m);  [2minput_1 = l_self_mlp_states_1_mlps_0_1_weight_ = l_self_mlp_states_1_mlps_0_1_bias_ = None[0m
+        input_3: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(input_2, inplace = [34mFalse[0m);  [2minput_2 = None[0m
+        input_4: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(input_3, l_self_mlp_states_1_mlps_0_3_weight_, l_self_mlp_states_1_mlps_0_3_bias_);  [2minput_3 = l_self_mlp_states_1_mlps_0_3_weight_ = l_self_mlp_states_1_mlps_0_3_bias_ = None[0m
+        input_5: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_4, ([34m2048[0m,), l_self_mlp_states_1_mlps_0_4_weight_, l_self_mlp_states_1_mlps_0_4_bias_, [34m0.0001[0m);  [2minput_4 = l_self_mlp_states_1_mlps_0_4_weight_ = l_self_mlp_states_1_mlps_0_4_bias_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:88 in forward, code: return torch.stack(outputs, dim=0) + x  # residual connection[0m
+        stack: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.stack([input_5], dim = [34m0[0m);  [2minput_5 = None[0m
+        outputs: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = stack + queries_1;  [2mstack = queries_1 = None[0m
+        return (outputs,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_151 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_parameters_persistent_tokens_: "[31mf32[0m[34m[4, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_K_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_V_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_parameters_persistent_tokens_ = L_self_parameters_persistent_tokens_
+        l_self_modules_k_parameters_weight_ = L_self_modules_K_parameters_weight_
+        l_self_modules_v_parameters_weight_ = L_self_modules_V_parameters_weight_
+        l_self_modules_alpha_parameters_weight_ = L_self_modules_alpha_parameters_weight_
+        l_self_modules_alpha_parameters_bias_ = L_self_modules_alpha_parameters_bias_
+        l_self_modules_eta_parameters_weight_ = L_self_modules_eta_parameters_weight_
+        l_self_modules_eta_parameters_bias_ = L_self_modules_eta_parameters_bias_
+        l_self_modules_theta_parameters_weight_ = L_self_modules_theta_parameters_weight_
+        l_self_modules_theta_parameters_bias_ = L_self_modules_theta_parameters_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:512 in update, code: z = x.detach()[0m
+        z: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.detach();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:518 in update, code: repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)[0m
+        repeated_persistent_tokens: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = l_self_parameters_persistent_tokens_.unsqueeze([34m0[0m);  [2ml_self_parameters_persistent_tokens_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:521 in update, code: repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)[0m
+        repeated_persistent_tokens_1: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = repeated_persistent_tokens.expand([34m1[0m, [34m-1[0m, [34m-1[0m);  [2mrepeated_persistent_tokens = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:524 in update, code: z = torch.cat([repeated_persistent_tokens, z], dim=1)[0m
+        z_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.cat([repeated_persistent_tokens_1, z], dim = [34m1[0m);  [2mrepeated_persistent_tokens_1 = z = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:527 in update, code: keys = self.silu(self.K(z))[0m
+        linear: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_k_parameters_weight_, [34mNone[0m);  [2ml_self_modules_k_parameters_weight_ = None[0m
+        keys: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:528 in update, code: values = self.silu(self.V(z))[0m
+        linear_1: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_v_parameters_weight_, [34mNone[0m);  [2mz_1 = l_self_modules_v_parameters_weight_ = None[0m
+        values: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear_1, inplace = [34mFalse[0m);  [2mlinear_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:543 in update, code: keys = F.normalize(keys, eps=1e-8)[0m
+        keys_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(keys, eps = [34m1e-08[0m);  [2mkeys = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:544 in update, code: values = F.normalize(values, eps=1e-8)[0m
+        values_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(values, eps = [34m1e-08[0m);  [2mvalues = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:547 in update, code: beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)[0m
+        linear_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_alpha_parameters_weight_, l_self_modules_alpha_parameters_bias_);  [2ml_self_modules_alpha_parameters_weight_ = l_self_modules_alpha_parameters_bias_ = None[0m
+        sigmoid: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_2);  [2mlinear_2 = None[0m
+        squeeze: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid.squeeze([34m-1[0m);  [2msigmoid = None[0m
+        mul: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.015[0m * squeeze;  [2msqueeze = None[0m
+        beta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul;  [2mmul = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:548 in update, code: eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_3: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_eta_parameters_weight_, l_self_modules_eta_parameters_bias_);  [2ml_self_modules_eta_parameters_weight_ = l_self_modules_eta_parameters_bias_ = None[0m
+        sigmoid_1: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_3);  [2mlinear_3 = None[0m
+        squeeze_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_1.squeeze([34m-1[0m);  [2msigmoid_1 = None[0m
+        mul_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.1[0m * squeeze_1;  [2msqueeze_1 = None[0m
+        eta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul_1;  [2mmul_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:549 in update, code: theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_4: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_theta_parameters_weight_, l_self_modules_theta_parameters_bias_);  [2ml_self_modules_theta_parameters_weight_ = l_self_modules_theta_parameters_bias_ = None[0m
+        sigmoid_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_4);  [2mlinear_4 = None[0m
+        squeeze_2: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_2.squeeze([34m-1[0m);  [2msigmoid_2 = None[0m
+        theta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.0003[0m * squeeze_2;  [2msqueeze_2 = None[0m
+        return (keys_1, values_1, beta_vec, eta_vec, theta_vec)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_154 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_self_modules_Q_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_x_: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_1_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_1_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_3_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_3_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_4_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_2_mlps_0_4_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_self_modules_q_parameters_weight_ = L_self_modules_Q_parameters_weight_
+        l_x_ = L_x_
+        l_self_mlp_states_2_mlps_0_0_weight_ = L_self_mlp_states_2_mlps_0_0_weight_
+        l_self_mlp_states_2_mlps_0_1_weight_ = L_self_mlp_states_2_mlps_0_1_weight_
+        l_self_mlp_states_2_mlps_0_1_bias_ = L_self_mlp_states_2_mlps_0_1_bias_
+        l_self_mlp_states_2_mlps_0_3_weight_ = L_self_mlp_states_2_mlps_0_3_weight_
+        l_self_mlp_states_2_mlps_0_3_bias_ = L_self_mlp_states_2_mlps_0_3_bias_
+        l_self_mlp_states_2_mlps_0_4_weight_ = L_self_mlp_states_2_mlps_0_4_weight_
+        l_self_mlp_states_2_mlps_0_4_bias_ = L_self_mlp_states_2_mlps_0_4_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:490 in forward, code: queries = self.silu(self.Q(x))[0m
+        linear: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_q_parameters_weight_, [34mNone[0m);  [2ml_x_ = l_self_modules_q_parameters_weight_ = None[0m
+        queries: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:497 in forward, code: queries = F.normalize(queries, eps=1e-8) # Normalize after convolution[0m
+        queries_1: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(queries, eps = [34m1e-08[0m);  [2mqueries = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:87 in <listcomp>, code: outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])][0m
+        getitem: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = queries_1[[34m0[0m]
+        input_1: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(getitem, l_self_mlp_states_2_mlps_0_0_weight_, [34mNone[0m);  [2mgetitem = l_self_mlp_states_2_mlps_0_0_weight_ = None[0m
+        input_2: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_1, ([34m2048[0m,), l_self_mlp_states_2_mlps_0_1_weight_, l_self_mlp_states_2_mlps_0_1_bias_, [34m1e-05[0m);  [2minput_1 = l_self_mlp_states_2_mlps_0_1_weight_ = l_self_mlp_states_2_mlps_0_1_bias_ = None[0m
+        input_3: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(input_2, inplace = [34mFalse[0m);  [2minput_2 = None[0m
+        input_4: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(input_3, l_self_mlp_states_2_mlps_0_3_weight_, l_self_mlp_states_2_mlps_0_3_bias_);  [2minput_3 = l_self_mlp_states_2_mlps_0_3_weight_ = l_self_mlp_states_2_mlps_0_3_bias_ = None[0m
+        input_5: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_4, ([34m2048[0m,), l_self_mlp_states_2_mlps_0_4_weight_, l_self_mlp_states_2_mlps_0_4_bias_, [34m0.0001[0m);  [2minput_4 = l_self_mlp_states_2_mlps_0_4_weight_ = l_self_mlp_states_2_mlps_0_4_bias_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:88 in forward, code: return torch.stack(outputs, dim=0) + x  # residual connection[0m
+        stack: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.stack([input_5], dim = [34m0[0m);  [2minput_5 = None[0m
+        outputs: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = stack + queries_1;  [2mstack = queries_1 = None[0m
+        return (outputs,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_157 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_parameters_persistent_tokens_: "[31mf32[0m[34m[4, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_K_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_V_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_parameters_persistent_tokens_ = L_self_parameters_persistent_tokens_
+        l_self_modules_k_parameters_weight_ = L_self_modules_K_parameters_weight_
+        l_self_modules_v_parameters_weight_ = L_self_modules_V_parameters_weight_
+        l_self_modules_alpha_parameters_weight_ = L_self_modules_alpha_parameters_weight_
+        l_self_modules_alpha_parameters_bias_ = L_self_modules_alpha_parameters_bias_
+        l_self_modules_eta_parameters_weight_ = L_self_modules_eta_parameters_weight_
+        l_self_modules_eta_parameters_bias_ = L_self_modules_eta_parameters_bias_
+        l_self_modules_theta_parameters_weight_ = L_self_modules_theta_parameters_weight_
+        l_self_modules_theta_parameters_bias_ = L_self_modules_theta_parameters_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:512 in update, code: z = x.detach()[0m
+        z: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.detach();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:518 in update, code: repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)[0m
+        repeated_persistent_tokens: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = l_self_parameters_persistent_tokens_.unsqueeze([34m0[0m);  [2ml_self_parameters_persistent_tokens_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:521 in update, code: repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)[0m
+        repeated_persistent_tokens_1: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = repeated_persistent_tokens.expand([34m1[0m, [34m-1[0m, [34m-1[0m);  [2mrepeated_persistent_tokens = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:524 in update, code: z = torch.cat([repeated_persistent_tokens, z], dim=1)[0m
+        z_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.cat([repeated_persistent_tokens_1, z], dim = [34m1[0m);  [2mrepeated_persistent_tokens_1 = z = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:527 in update, code: keys = self.silu(self.K(z))[0m
+        linear: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_k_parameters_weight_, [34mNone[0m);  [2ml_self_modules_k_parameters_weight_ = None[0m
+        keys: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:528 in update, code: values = self.silu(self.V(z))[0m
+        linear_1: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_v_parameters_weight_, [34mNone[0m);  [2mz_1 = l_self_modules_v_parameters_weight_ = None[0m
+        values: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear_1, inplace = [34mFalse[0m);  [2mlinear_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:543 in update, code: keys = F.normalize(keys, eps=1e-8)[0m
+        keys_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(keys, eps = [34m1e-08[0m);  [2mkeys = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:544 in update, code: values = F.normalize(values, eps=1e-8)[0m
+        values_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(values, eps = [34m1e-08[0m);  [2mvalues = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:547 in update, code: beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)[0m
+        linear_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_alpha_parameters_weight_, l_self_modules_alpha_parameters_bias_);  [2ml_self_modules_alpha_parameters_weight_ = l_self_modules_alpha_parameters_bias_ = None[0m
+        sigmoid: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_2);  [2mlinear_2 = None[0m
+        squeeze: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid.squeeze([34m-1[0m);  [2msigmoid = None[0m
+        mul: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.015[0m * squeeze;  [2msqueeze = None[0m
+        beta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul;  [2mmul = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:548 in update, code: eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_3: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_eta_parameters_weight_, l_self_modules_eta_parameters_bias_);  [2ml_self_modules_eta_parameters_weight_ = l_self_modules_eta_parameters_bias_ = None[0m
+        sigmoid_1: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_3);  [2mlinear_3 = None[0m
+        squeeze_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_1.squeeze([34m-1[0m);  [2msigmoid_1 = None[0m
+        mul_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.1[0m * squeeze_1;  [2msqueeze_1 = None[0m
+        eta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul_1;  [2mmul_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:549 in update, code: theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_4: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_theta_parameters_weight_, l_self_modules_theta_parameters_bias_);  [2ml_self_modules_theta_parameters_weight_ = l_self_modules_theta_parameters_bias_ = None[0m
+        sigmoid_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_4);  [2mlinear_4 = None[0m
+        squeeze_2: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_2.squeeze([34m-1[0m);  [2msigmoid_2 = None[0m
+        theta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.0003[0m * squeeze_2;  [2msqueeze_2 = None[0m
+        return (keys_1, values_1, beta_vec, eta_vec, theta_vec)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_160 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_self_modules_Q_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_x_: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_1_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_1_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_3_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_3_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_4_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_mlp_states_3_mlps_0_4_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_self_modules_q_parameters_weight_ = L_self_modules_Q_parameters_weight_
+        l_x_ = L_x_
+        l_self_mlp_states_3_mlps_0_0_weight_ = L_self_mlp_states_3_mlps_0_0_weight_
+        l_self_mlp_states_3_mlps_0_1_weight_ = L_self_mlp_states_3_mlps_0_1_weight_
+        l_self_mlp_states_3_mlps_0_1_bias_ = L_self_mlp_states_3_mlps_0_1_bias_
+        l_self_mlp_states_3_mlps_0_3_weight_ = L_self_mlp_states_3_mlps_0_3_weight_
+        l_self_mlp_states_3_mlps_0_3_bias_ = L_self_mlp_states_3_mlps_0_3_bias_
+        l_self_mlp_states_3_mlps_0_4_weight_ = L_self_mlp_states_3_mlps_0_4_weight_
+        l_self_mlp_states_3_mlps_0_4_bias_ = L_self_mlp_states_3_mlps_0_4_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:490 in forward, code: queries = self.silu(self.Q(x))[0m
+        linear: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(l_x_, l_self_modules_q_parameters_weight_, [34mNone[0m);  [2ml_x_ = l_self_modules_q_parameters_weight_ = None[0m
+        queries: "[31mbf16[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:497 in forward, code: queries = F.normalize(queries, eps=1e-8) # Normalize after convolution[0m
+        queries_1: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(queries, eps = [34m1e-08[0m);  [2mqueries = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:87 in <listcomp>, code: outputs = [self.mlps[i](x[i]) for i in range(x.shape[0])][0m
+        getitem: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = queries_1[[34m0[0m]
+        input_1: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(getitem, l_self_mlp_states_3_mlps_0_0_weight_, [34mNone[0m);  [2mgetitem = l_self_mlp_states_3_mlps_0_0_weight_ = None[0m
+        input_2: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_1, ([34m2048[0m,), l_self_mlp_states_3_mlps_0_1_weight_, l_self_mlp_states_3_mlps_0_1_bias_, [34m1e-05[0m);  [2minput_1 = l_self_mlp_states_3_mlps_0_1_weight_ = l_self_mlp_states_3_mlps_0_1_bias_ = None[0m
+        input_3: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(input_2, inplace = [34mFalse[0m);  [2minput_2 = None[0m
+        input_4: "[31mbf16[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(input_3, l_self_mlp_states_3_mlps_0_3_weight_, l_self_mlp_states_3_mlps_0_3_bias_);  [2minput_3 = l_self_mlp_states_3_mlps_0_3_weight_ = l_self_mlp_states_3_mlps_0_3_bias_ = None[0m
+        input_5: "[31mf32[0m[34m[32, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.layer_norm(input_4, ([34m2048[0m,), l_self_mlp_states_3_mlps_0_4_weight_, l_self_mlp_states_3_mlps_0_4_bias_, [34m0.0001[0m);  [2minput_4 = l_self_mlp_states_3_mlps_0_4_weight_ = l_self_mlp_states_3_mlps_0_4_bias_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:88 in forward, code: return torch.stack(outputs, dim=0) + x  # residual connection[0m
+        stack: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = torch.stack([input_5], dim = [34m0[0m);  [2minput_5 = None[0m
+        outputs: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[65536, 2048, 1][0m[2m[32mcuda:0[0m" = stack + queries_1;  [2mstack = queries_1 = None[0m
+        return (outputs,)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_163 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_x_: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m", L_self_parameters_persistent_tokens_: "[31mf32[0m[34m[4, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_K_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_V_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_alpha_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_eta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_weight_: "[31mf32[0m[34m[1, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_theta_parameters_bias_: "[31mf32[0m[34m[1][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_parameters_persistent_tokens_ = L_self_parameters_persistent_tokens_
+        l_self_modules_k_parameters_weight_ = L_self_modules_K_parameters_weight_
+        l_self_modules_v_parameters_weight_ = L_self_modules_V_parameters_weight_
+        l_self_modules_alpha_parameters_weight_ = L_self_modules_alpha_parameters_weight_
+        l_self_modules_alpha_parameters_bias_ = L_self_modules_alpha_parameters_bias_
+        l_self_modules_eta_parameters_weight_ = L_self_modules_eta_parameters_weight_
+        l_self_modules_eta_parameters_bias_ = L_self_modules_eta_parameters_bias_
+        l_self_modules_theta_parameters_weight_ = L_self_modules_theta_parameters_weight_
+        l_self_modules_theta_parameters_bias_ = L_self_modules_theta_parameters_bias_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:512 in update, code: z = x.detach()[0m
+        z: "[31mf32[0m[34m[1, 32, 2048][0m[2m[34m[262144, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.detach();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:518 in update, code: repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)[0m
+        repeated_persistent_tokens: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = l_self_parameters_persistent_tokens_.unsqueeze([34m0[0m);  [2ml_self_parameters_persistent_tokens_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:521 in update, code: repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)[0m
+        repeated_persistent_tokens_1: "[31mf32[0m[34m[1, 4, 2048][0m[2m[34m[8192, 2048, 1][0m[2m[32mcuda:0[0m" = repeated_persistent_tokens.expand([34m1[0m, [34m-1[0m, [34m-1[0m);  [2mrepeated_persistent_tokens = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:524 in update, code: z = torch.cat([repeated_persistent_tokens, z], dim=1)[0m
+        z_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.cat([repeated_persistent_tokens_1, z], dim = [34m1[0m);  [2mrepeated_persistent_tokens_1 = z = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:527 in update, code: keys = self.silu(self.K(z))[0m
+        linear: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_k_parameters_weight_, [34mNone[0m);  [2ml_self_modules_k_parameters_weight_ = None[0m
+        keys: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear, inplace = [34mFalse[0m);  [2mlinear = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:528 in update, code: values = self.silu(self.V(z))[0m
+        linear_1: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(z_1, l_self_modules_v_parameters_weight_, [34mNone[0m);  [2mz_1 = l_self_modules_v_parameters_weight_ = None[0m
+        values: "[31mbf16[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.silu(linear_1, inplace = [34mFalse[0m);  [2mlinear_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:543 in update, code: keys = F.normalize(keys, eps=1e-8)[0m
+        keys_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(keys, eps = [34m1e-08[0m);  [2mkeys = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:544 in update, code: values = F.normalize(values, eps=1e-8)[0m
+        values_1: "[31mf32[0m[34m[1, 36, 2048][0m[2m[34m[73728, 2048, 1][0m[2m[32mcuda:0[0m" = torch.nn.functional.normalize(values, eps = [34m1e-08[0m);  [2mvalues = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:547 in update, code: beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)[0m
+        linear_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_alpha_parameters_weight_, l_self_modules_alpha_parameters_bias_);  [2ml_self_modules_alpha_parameters_weight_ = l_self_modules_alpha_parameters_bias_ = None[0m
+        sigmoid: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_2);  [2mlinear_2 = None[0m
+        squeeze: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid.squeeze([34m-1[0m);  [2msigmoid = None[0m
+        mul: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.015[0m * squeeze;  [2msqueeze = None[0m
+        beta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul;  [2mmul = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:548 in update, code: eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_3: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_eta_parameters_weight_, l_self_modules_eta_parameters_bias_);  [2ml_self_modules_eta_parameters_weight_ = l_self_modules_eta_parameters_bias_ = None[0m
+        sigmoid_1: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_3);  [2mlinear_3 = None[0m
+        squeeze_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_1.squeeze([34m-1[0m);  [2msigmoid_1 = None[0m
+        mul_1: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.1[0m * squeeze_1;  [2msqueeze_1 = None[0m
+        eta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m1[0m - mul_1;  [2mmul_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:549 in update, code: theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)[0m
+        linear_4: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(keys_1, l_self_modules_theta_parameters_weight_, l_self_modules_theta_parameters_bias_);  [2ml_self_modules_theta_parameters_weight_ = l_self_modules_theta_parameters_bias_ = None[0m
+        sigmoid_2: "[31mbf16[0m[34m[1, 36, 1][0m[2m[34m[36, 1, 1][0m[2m[32mcuda:0[0m" = torch.sigmoid(linear_4);  [2mlinear_4 = None[0m
+        squeeze_2: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = sigmoid_2.squeeze([34m-1[0m);  [2msigmoid_2 = None[0m
+        theta_vec: "[31mbf16[0m[34m[1, 36][0m[2m[34m[36, 1][0m[2m[32mcuda:0[0m" = [34m0.0003[0m * squeeze_2;  [2msqueeze_2 = None[0m
+        return (keys_1, values_1, beta_vec, eta_vec, theta_vec)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_178 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, s0: "Sym(s0)", L_x_: "[31mf32[0m[34m[1, s0, 2048][0m[2m[34m[2048*s0, 2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_norm_parameters_weight_: "[31mbf16[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_labels_: "[31mi64[0m[34m[1, s0][0m[2m[34m[s0, 1][0m[2m[32mcuda:0[0m", L_self_modules_w_out_parameters_weight_: "[31mbf16[0m[34m[100352, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_loss_div_factor_: "[31mi64[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m"):
+        l_x_ = L_x_
+        l_self_modules_norm_parameters_weight_ = L_self_modules_norm_parameters_weight_
+        l_labels_ = L_labels_
+        l_self_modules_w_out_parameters_weight_ = L_self_modules_w_out_parameters_weight_
+        l_loss_div_factor_ = L_loss_div_factor_
+        
+        [2m# No stacktrace found for following nodes[0m
+        _enter_autocast = torch.amp.autocast_mode._enter_autocast([34m'cuda'[0m, [34mNone[0m, [34mFalse[0m, [34mNone[0m)
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:203 in forward, code: x = x.float()[0m
+        x: "[31mf32[0m[34m[1, s0, 2048][0m[2m[34m[2048*s0, 2048, 1][0m[2m[32mcuda:0[0m" = l_x_.float();  [2ml_x_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:205 in forward, code: variance = x.pow(2).mean(-1, keepdim=True)[0m
+        pow_1: "[31mf32[0m[34m[1, s0, 2048][0m[2m[34m[2048*s0, 2048, 1][0m[2m[32mcuda:0[0m" = x.pow([34m2[0m)
+        variance: "[31mf32[0m[34m[1, s0, 1][0m[2m[34m[s0, 1, 1][0m[2m[32mcuda:0[0m" = pow_1.mean([34m-1[0m, keepdim = [34mTrue[0m);  [2mpow_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:206 in forward, code: x = x * torch.rsqrt(variance + self.eps)[0m
+        add: "[31mf32[0m[34m[1, s0, 1][0m[2m[34m[s0, 1, 1][0m[2m[32mcuda:0[0m" = variance + [34m1e-06[0m;  [2mvariance = None[0m
+        rsqrt: "[31mf32[0m[34m[1, s0, 1][0m[2m[34m[s0, 1, 1][0m[2m[32mcuda:0[0m" = torch.rsqrt(add);  [2madd = None[0m
+        x_1: "[31mf32[0m[34m[1, s0, 2048][0m[2m[34m[2048*s0, 2048, 1][0m[2m[32mcuda:0[0m" = x * rsqrt;  [2mx = rsqrt = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:212 in forward, code: x = self.weight.type_as(x) * x[0m
+        type_as: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_self_modules_norm_parameters_weight_.type_as(x_1);  [2ml_self_modules_norm_parameters_weight_ = None[0m
+        x_2: "[31mf32[0m[34m[1, s0, 2048][0m[2m[34m[2048*s0, 2048, 1][0m[2m[32mcuda:0[0m" = type_as * x_1;  [2mtype_as = x_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/layer_norm.py:214 in forward, code: return x.to(og_dtype)[0m
+        h: "[31mf32[0m[34m[1, s0, 2048][0m[2m[34m[2048*s0, 2048, 1][0m[2m[32mcuda:0[0m" = x_2.to([34mtorch.float32[0m);  [2mx_2 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _exit_autocast = torch.amp.autocast_mode._exit_autocast(_enter_autocast);  [2m_enter_autocast = _exit_autocast = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/lm_head.py:231 in forward, code: logits = self.w_out(h)[0m
+        logits: "[31mbf16[0m[34m[1, s0, 100352][0m[2m[34m[100352*s0, 100352, 1][0m[2m[32mcuda:0[0m" = torch._C._nn.linear(h, l_self_modules_w_out_parameters_weight_, [34mNone[0m);  [2mh = l_self_modules_w_out_parameters_weight_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/lm_head.py:234 in forward, code: get_local_tensor(logits).view(-1, self.vocab_size),[0m
+        view: "[31mbf16[0m[34m[s0, 100352][0m[2m[34m[100352, 1][0m[2m[32mcuda:0[0m" = logits.view([34m-1[0m, [34m100352[0m);  [2mlogits = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/lm_head.py:235 in forward, code: get_local_tensor(labels).view(-1),[0m
+        view_1: "[31mi64[0m[34m[s0][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = l_labels_.view([34m-1[0m);  [2ml_labels_ = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/functional/cross_entropy_loss.py:32 in cross_entropy_loss, code: logits = logits.float()[0m
+        logits_1: "[31mf32[0m[34m[s0, 100352][0m[2m[34m[100352, 1][0m[2m[32mcuda:0[0m" = view.float();  [2mview = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/functional/cross_entropy_loss.py:33 in cross_entropy_loss, code: loss = F.cross_entropy(logits, labels, ignore_index=ignore_index, reduction=reduction)[0m
+        loss: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = torch.nn.functional.cross_entropy(logits_1, view_1, ignore_index = [34m-100[0m, reduction = [34m'sum'[0m);  [2mlogits_1 = view_1 = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/lm_head.py:339 in _finalize_loss, code: loss = loss / loss_div_factor[0m
+        loss_1: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = loss / l_loss_div_factor_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/lm_head.py:279 in forward, code: ce_loss.detach(),[0m
+        detach: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = loss.detach();  [2mloss = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/lm_head.py:339 in _finalize_loss, code: loss = loss / loss_div_factor[0m
+        loss_2: "[31mf32[0m[34m[][0m[2m[34m[][0m[2m[32mcuda:0[0m" = detach / l_loss_div_factor_;  [2mdetach = l_loss_div_factor_ = None[0m
+        return (loss_1, loss_2)
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_184 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_0_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_mlp_template_weights_parameters_0_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_mlp_template_weights_parameters_1_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_mlp_template_weights_parameters_1_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_mlp_template_weights_parameters_3_weight_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m", L_self_modules_mlp_template_weights_parameters_3_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_mlp_template_weights_parameters_4_weight_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m", L_self_modules_mlp_template_weights_parameters_4_bias_: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m"):
+        l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_0_parameters_weight_ = L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_0_parameters_weight_
+        l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_weight_ = L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_weight_
+        l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_bias_ = L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_bias_
+        l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_weight_ = L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_weight_
+        l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_bias_ = L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_bias_
+        l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_weight_ = L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_weight_
+        l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_bias_ = L_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_bias_
+        l_self_modules_mlp_template_weights_parameters_0_weight_ = L_self_modules_mlp_template_weights_parameters_0_weight_
+        l_self_modules_mlp_template_weights_parameters_1_weight_ = L_self_modules_mlp_template_weights_parameters_1_weight_
+        l_self_modules_mlp_template_weights_parameters_1_bias_ = L_self_modules_mlp_template_weights_parameters_1_bias_
+        l_self_modules_mlp_template_weights_parameters_3_weight_ = L_self_modules_mlp_template_weights_parameters_3_weight_
+        l_self_modules_mlp_template_weights_parameters_3_bias_ = L_self_modules_mlp_template_weights_parameters_3_bias_
+        l_self_modules_mlp_template_weights_parameters_4_weight_ = L_self_modules_mlp_template_weights_parameters_4_weight_
+        l_self_modules_mlp_template_weights_parameters_4_bias_ = L_self_modules_mlp_template_weights_parameters_4_bias_
+        
+        [2m# No stacktrace found for following nodes[0m
+        _set_grad_enabled = torch._C._set_grad_enabled([34mFalse[0m);  [2m_set_grad_enabled = None[0m
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/titans/neural_memory.py:336 in reset_weights_from_template, code: param_instance.data.copy_(template_weights[clean_name].data)[0m
+        _get_data_attr: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_0_parameters_weight_);  [2ml_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_0_parameters_weight_ = None[0m
+        _get_data_attr_1: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlp_template_weights_parameters_0_weight_);  [2ml_self_modules_mlp_template_weights_parameters_0_weight_ = None[0m
+        copy_: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = _get_data_attr.copy_(_get_data_attr_1);  [2m_get_data_attr = _get_data_attr_1 = copy_ = None[0m
+        _get_data_attr_2: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_weight_);  [2ml_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_weight_ = None[0m
+        _get_data_attr_3: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlp_template_weights_parameters_1_weight_);  [2ml_self_modules_mlp_template_weights_parameters_1_weight_ = None[0m
+        copy__1: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = _get_data_attr_2.copy_(_get_data_attr_3);  [2m_get_data_attr_2 = _get_data_attr_3 = copy__1 = None[0m
+        _get_data_attr_4: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_bias_);  [2ml_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_1_parameters_bias_ = None[0m
+        _get_data_attr_5: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlp_template_weights_parameters_1_bias_);  [2ml_self_modules_mlp_template_weights_parameters_1_bias_ = None[0m
+        copy__2: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = _get_data_attr_4.copy_(_get_data_attr_5);  [2m_get_data_attr_4 = _get_data_attr_5 = copy__2 = None[0m
+        _get_data_attr_6: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_weight_);  [2ml_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_weight_ = None[0m
+        _get_data_attr_7: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlp_template_weights_parameters_3_weight_);  [2ml_self_modules_mlp_template_weights_parameters_3_weight_ = None[0m
+        copy__3: "[31mf32[0m[34m[2048, 2048][0m[2m[34m[2048, 1][0m[2m[32mcuda:0[0m" = _get_data_attr_6.copy_(_get_data_attr_7);  [2m_get_data_attr_6 = _get_data_attr_7 = copy__3 = None[0m
+        _get_data_attr_8: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_bias_);  [2ml_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_3_parameters_bias_ = None[0m
+        _get_data_attr_9: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlp_template_weights_parameters_3_bias_);  [2ml_self_modules_mlp_template_weights_parameters_3_bias_ = None[0m
+        copy__4: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = _get_data_attr_8.copy_(_get_data_attr_9);  [2m_get_data_attr_8 = _get_data_attr_9 = copy__4 = None[0m
+        _get_data_attr_10: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_weight_);  [2ml_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_weight_ = None[0m
+        _get_data_attr_11: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlp_template_weights_parameters_4_weight_);  [2ml_self_modules_mlp_template_weights_parameters_4_weight_ = None[0m
+        copy__5: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = _get_data_attr_10.copy_(_get_data_attr_11);  [2m_get_data_attr_10 = _get_data_attr_11 = copy__5 = None[0m
+        _get_data_attr_12: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_bias_);  [2ml_self_modules_mlps_processor_orig_mod_modules_mlps_modules_0_modules_4_parameters_bias_ = None[0m
+        _get_data_attr_13: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = torch._C._autograd._get_data_attr(l_self_modules_mlp_template_weights_parameters_4_bias_);  [2ml_self_modules_mlp_template_weights_parameters_4_bias_ = None[0m
+        copy__6: "[31mf32[0m[34m[2048][0m[2m[34m[1][0m[2m[32mcuda:0[0m" = _get_data_attr_12.copy_(_get_data_attr_13);  [2m_get_data_attr_12 = _get_data_attr_13 = copy__6 = None[0m
+        
+        [2m# No stacktrace found for following nodes[0m
+        _set_grad_enabled_1 = torch._C._set_grad_enabled([34mTrue[0m);  [2m_set_grad_enabled_1 = None[0m
+        return ()
+        
+
+TRACED GRAPH
+ ===== __compiled_fn_187 =====
+ /ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/fx/_lazy_graph_module.py class GraphModule(torch.nn.Module):
+    def forward(self, _odict_getitem_L_self_cache_rope_pos_sin_: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m", _odict_getitem_L_self_cache_rope_pos_cos_: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m"):
+        _odict_getitem_l_self_cache_rope_pos_sin_ = _odict_getitem_L_self_cache_rope_pos_sin_
+        _odict_getitem_l_self_cache_rope_pos_cos_ = _odict_getitem_L_self_cache_rope_pos_cos_
+        
+         [2m# File: /ssd/karen/Titan_OLMo_core/src/olmo_core/nn/rope.py:199 in _get_rotary_embedding, code: return pos_sin[:seq_len, :], pos_cos[:seq_len, :][0m
+        getitem_4: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = _odict_getitem_l_self_cache_rope_pos_sin_[(slice([34mNone[0m, [34m132[0m, [34mNone[0m), slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2m_odict_getitem_l_self_cache_rope_pos_sin_ = None[0m
+        getitem_5: "[31mf32[0m[34m[132, 128][0m[2m[34m[128, 1][0m[2m[32mcuda:0[0m" = _odict_getitem_l_self_cache_rope_pos_cos_[(slice([34mNone[0m, [34m132[0m, [34mNone[0m), slice([34mNone[0m, [34mNone[0m, [34mNone[0m))];  [2m_odict_getitem_l_self_cache_rope_pos_cos_ = None[0m
+        return (getitem_4, getitem_5)
+        
+

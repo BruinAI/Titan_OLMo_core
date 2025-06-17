@@ -351,9 +351,9 @@ class NeuralMemory(nn.Module):
 
     def __init__(self, emb_dim = 16, n_layers = 2, hidden_dim = 32,
                  nu = 0.01, l2_memory_weight = 0.00,
-                 alpha_scale=0.005, eta_scale=0.1, theta_scale=3e-4,
+                 alpha_scale=0.015, eta_scale=0.1, theta_scale=3e-4,
                  use_global_sw = False, num_global_tokens = 0,
-                 use_conv=False, retrieve_layer=True,
+                 use_conv=False, retrieve_layer=False,
                  audit_grad=False):
         super().__init__()
 
@@ -483,6 +483,7 @@ class NeuralMemory(nn.Module):
     def retrieve(self, x):
         return self.forward(x)
 
+    @torch.compile()
     def forward(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
@@ -600,53 +601,54 @@ class NeuralMemory(nn.Module):
                     # This case should ideally not be hit if all params are standard 'weight' or 'bias'
                     raise ValueError(f"Unexpected parameter name structure: {name}")
                 
-                
-                # new param with no gradients
-                template_weights[clean_name] = new_param.detach()
+                # Set as a learnable parameter (requires_grad=True)
+                template_weights[clean_name] = new_param
+    
         del reference_mlp
         return template_weights
 
     @torch.compile()
-    def train_initial_mlp(self):
+    def train_initial_mlp(self, learnable=True):
         """
         Aggregate parameters from every stored MLP state and update the
         shared template weights via an exponential moving-average.
         """
-        num_states = len(self.mlp_states)
-        if num_states == 0:
-            return
+        if not learnable:
+            num_states = len(self.mlp_states)
+            if num_states == 0:
+                return
 
-        mlp_sums: dict[str, torch.Tensor] = {}
-        with torch.no_grad():
-            for state in self.mlp_states:
-                for name, param in state.items():
-                    match = ParallelMLPs._mlp_index_regex.search(name)
-                    if match is None:
-                        raise ValueError(f"Parameter name {name} does not match expected format.")
-                    clean_name = name[match.end():].replace('.', '_')
+            mlp_sums: dict[str, torch.Tensor] = {}
+            with torch.no_grad():
+                for state in self.mlp_states:
+                    for name, param in state.items():
+                        match = ParallelMLPs._mlp_index_regex.search(name)
+                        if match is None:
+                            raise ValueError(f"Parameter name {name} does not match expected format.")
+                        clean_name = name[match.end():].replace('.', '_')
 
-                    if not torch.isfinite(param).all():
-                        raise ValueError(f"Parameter {name} contains NaN or Inf values.")
+                        # if not torch.isfinite(param).all():
+                        #     raise ValueError(f"Parameter {name} contains NaN or Inf values.")
 
-                    #param = param.clamp(-10, 10)  # Simple value clipping
-                    nn.utils.clip_grad_norm_(param, 10)
-                    if clean_name not in mlp_sums:
-                        mlp_sums[clean_name] = param.detach().clone()  # initializing with clone for running sum
-                    else:
-                        mlp_sums[clean_name].add_(param.detach())  # accumulate in‑place
+                        #param = param.clamp(-10, 10)  # Simple value clipping
+                        nn.utils.clip_grad_norm_(param, 10)
+                        if clean_name not in mlp_sums:
+                            mlp_sums[clean_name] = param.detach().clone()  # initializing with clone for running sum
+                        else:
+                            mlp_sums[clean_name].add_(param.detach())  # accumulate in‑place
 
-            for clean_name, summed_param in mlp_sums.items():
-                if clean_name not in self.mlp_template_weights:
-                    raise AssertionError(f"Parameter {clean_name} not found in template weights.")
+                for clean_name, summed_param in mlp_sums.items():
+                    if clean_name not in self.mlp_template_weights:
+                        raise AssertionError(f"Parameter {clean_name} not found in template weights.")
 
-                avg_param = summed_param / num_states
-                template_weight = self.mlp_template_weights[clean_name]
+                    avg_param = summed_param / num_states
+                    template_weight = self.mlp_template_weights[clean_name]
 
-                new_weight = (1.0 - self.nu) * template_weight + self.nu * avg_param
-                if not torch.isfinite(new_weight).all():
-                    raise ValueError(f"Updated weight for {clean_name} contains NaN or Inf values.")
+                    new_weight = (1.0 - self.nu) * template_weight + self.nu * avg_param
+                    # if not torch.isfinite(new_weight).all():
+                    #     raise ValueError(f"Updated weight for {clean_name} contains NaN or Inf values.")
 
-                template_weight.data.copy_(new_weight)  # copy into Parameter to preserve state‑dict link
+                    template_weight.data.copy_(new_weight)  # copy into Parameter to preserve state‑dict link
         
     def print_mlp_state_stats(self):
         """
@@ -669,3 +671,23 @@ class NeuralMemory(nn.Module):
                 clean_name = name[match.end():].replace('.', '_')
             else:
                 clean_name = name.replace('.', '_')
+                
+    # Add this method to the NeuralMemory class
+
+    def check_parameter_gradients(self):
+        """
+        Check and report which parameters have gradients in the neural memory module.
+        Call this after loss.backward() but before optimizer.step()
+        """
+        print("\n=== Neural Memory Gradient Check ===")
+        
+        # Check main parameters
+        for name, param in self.named_parameters():
+            if param.grad is None:
+                print(f"WARNING: {name} has NO gradient")
+            else:
+                grad_norm = param.grad.norm().item()
+                param_norm = param.norm().item()
+                print(f"{name}: grad_norm={grad_norm:.6f}, param_norm={param_norm:.6f}")
+        
+        print("===================================\n")

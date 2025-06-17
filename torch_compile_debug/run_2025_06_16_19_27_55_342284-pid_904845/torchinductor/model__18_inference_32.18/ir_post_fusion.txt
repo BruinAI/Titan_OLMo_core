@@ -1,0 +1,53 @@
+op0: SchedulerNode(ComputedBuffer)
+op0.writes = [MemoryDep('buf0', c0, {c0: 4194304})]
+op0.unmet_dependencies = []
+op0.met_dependencies = 
+    [   MemoryDep('arg0_1', c0, {c0: 4194304}),
+        MemoryDep('arg1_1', c0, {c0: 4194304}),
+        MemoryDep('arg2_1', c0, {c0: 4194304}),
+        MemoryDep('arg3_1', 0, {}),
+        MemoryDep('arg4_1', 0, {})]
+op0.outputs = [
+    buf0: ComputedBuffer
+    buf0.layout = FixedLayout('cuda:0', torch.float32, size=[2048, 2048], stride=[2048, 1])
+    buf0.users = [NodeUser(node=OUTPUT, can_inplace=False, is_weak=False)]
+]
+op0.group.device = cuda:0
+op0.group.iteration = (4194304, 1)
+op0.sizes = ([4194304], [])
+arg3_1_layout = FixedLayout('cuda:0', torch.float32, size=[1], stride=[36])
+arg1_1_layout = FixedLayout('cuda:0', torch.float32, size=[2048, 2048], stride=[2048, 1])
+arg4_1_layout = FixedLayout('cuda:0', torch.float32, size=[1], stride=[1])
+arg2_1_layout = FixedLayout('cuda:0', torch.float32, size=[2048, 2048], stride=[2048, 1])
+arg0_1_layout = FixedLayout('cuda:0', torch.float32, size=[2048, 2048], stride=[2048, 1])
+buf0_layout = FixedLayout('cuda:0', torch.float32, size=[2048, 2048], stride=[2048, 1])
+class op0_loop_body:
+    var_ranges = {p0: 4194304}
+    index0 = 0
+    index1 = p0
+    def body(self, ops):
+        get_index = self.get_index('index0')
+        load = ops.load('arg3_1', get_index)
+        constant = ops.constant(1.0, torch.float32)
+        mul = ops.mul(load, constant)
+        get_index_1 = self.get_index('index1')
+        load_1 = ops.load('arg1_1', get_index_1)
+        mul_1 = ops.mul(mul, load_1)
+        get_index_2 = self.get_index('index0')
+        load_2 = ops.load('arg4_1', get_index_2)
+        get_index_3 = self.get_index('index1')
+        load_3 = ops.load('arg2_1', get_index_3)
+        mul_2 = ops.mul(load_2, load_3)
+        add = ops.add(mul_1, mul_2)
+        get_index_4 = self.get_index('index1')
+        load_4 = ops.load('arg0_1', get_index_4)
+        sub = ops.sub(add, load_4)
+        constant_1 = ops.constant(-100.0, torch.float32)
+        maximum = ops.maximum(sub, constant_1)
+        constant_2 = ops.constant(100.0, torch.float32)
+        minimum = ops.minimum(maximum, constant_2)
+        get_index_5 = self.get_index('index1')
+        store = ops.store('buf0', get_index_5, minimum, None)
+        return store
+
+

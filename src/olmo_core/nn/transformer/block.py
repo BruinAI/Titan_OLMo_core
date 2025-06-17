@@ -413,7 +413,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             gate = self.memory.retrieve(chunk_x) 
             
             _loss = self.memory.update(chunk_x)
-            self.chunk_losses_this_forward.append(_loss.item())
+            self.chunk_losses_this_forward.append(_loss.detach())
             #print(f"Chunk {i}: Loss = {_loss.item()}")
             gates.append(gate)
             self.memory.print_mlp_state_stats()
