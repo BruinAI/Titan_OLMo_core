@@ -14,6 +14,11 @@ from dataclasses import dataclass, field
 from typing import List, Optional, cast, Dict, Any
 import copy  # Add this import at the top of the file with other imports
 
+DESIRED_GPU_ID = 1
+if "CUDA_VISIBLE_DEVICES" not in os.environ:
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(DESIRED_GPU_ID)
+    
+
 from tqdm import tqdm
 from pathlib import Path
 import wandb
@@ -22,6 +27,8 @@ from olmo_core.train.callbacks import Callback # Ensure Callback is imported
 from olmo_core.train.trainer import Trainer # For type hinting
 from olmo_core.train.train_module import TrainModule # For type hinting
 import types # For MethodType
+
+from olmo_core.ops import attach_auxiliary_loss
 
 
 if "olmo_core" not in sys.path:
@@ -90,13 +97,16 @@ log = logging.getLogger(__name__)
 #### CONFIGURATION ####
 #######################
 
+# GPU Configuration
+# Set to 0 for the first GPU, 1 for the second, etc.
+# PyTorch will see this GPU as 'cuda:0' after setting CUDA_VISIBLE_DEVICES.
+
 # Phase configuration
 # At the top of the file, change this line
 PHASE = "full_model"  # Change from "memory_only" to "full_model"
-CHECKPOINT = None  # Make sure this is None for a fresh start
 
 # Set this if you want to start training from an existing checkpoint
-CHECKPOINT: Optional[str] = None
+CHECKPOINT: Optional[str] = None # "/ssd/karen/titan_checkpoints/checkpoint_restart_3500/step85900"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
 
 # Data configuration
 # Path to your manifest file listing .npy data shards
@@ -114,7 +124,7 @@ SEQUENCE_LENGTH = 1024  # Limited to 1024 tokens as specified
 INTRA_DOCUMENT_MASKING = False
 
 # For single GPU, we can use a slightly larger batch size
-BATCH_SIZE = 3  # Increased from 2 for single GPU efficiency
+BATCH_SIZE = 4  # Increased from 2 for single GPU efficiency
 RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
 GLOBAL_BATCH_SIZE = RANK_MICROBATCH_SIZE
 
@@ -123,9 +133,9 @@ MEMORY_LAYERS = [3,7,11,15]  # Every 4th layer
 USE_SLIDING_WINDOW = True
 WINDOW_SIZE = 512
 PERSISTENT_MEM_LEN = 4  # Number of persistent memory tokens
-CHUNK_SIZE = 128  # Size of chunks for memory processing
+CHUNK_SIZE = 256  # Size of chunks for memory processing
 N_LAYERS = 2  # Number of layers in memory component
-HIDDEN_DIM_MULTIPLE = 1  # Multiple for memory hidden dimension
+HIDDEN_DIM_MULTIPLE = 2  # Multiple for memory hidden dimension
 
 # WandB configuration
 WANDB_PROJECT = "Titan_OLMo"  # Your WandB project name
@@ -142,15 +152,15 @@ memory_config = MemoryConfig(
     chunk_size=CHUNK_SIZE,
     n_layers=N_LAYERS,
     hidden_dim_multiple=HIDDEN_DIM_MULTIPLE,
-    alpha=0.999,
-    eta=0.60,
-    theta=0.05
+    # alpha=0.999,
+    # eta=0.60,
+    # theta=0.05
 )
 
 # Training configuration
 MEMORY_ONLY_STEPS = 2000  # Number of steps for memory-only training
 LEARNING_RATE = 5e-5
-FULL_MODEL_LEARNING_RATE = 1e-5
+FULL_MODEL_LEARNING_RATE = 3e-4
 
 # Local save path - create checkpoints directory if it doesn't exist
 SAVE_DIR = os.path.expanduser("~/titan_checkpoints")
@@ -159,6 +169,86 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 ###########################
 #### END CONFIGURATION ####
 ###########################
+
+class MemoryWeightTracker(Callback):
+    def __init__(self, log_interval=10, track_block_idx=0, track_gradients=True):
+        super().__init__()
+        self.log_interval = log_interval
+        self.track_block_idx = track_block_idx  # Only track this memory block index
+        self.track_gradients = track_gradients
+        self.target_memory_module = None
+        self.target_module_name = None
+        
+    def pre_train(self):
+        # Find and track only one specific memory module
+        memory_modules_found = []
+        
+        for module_name, module in self.trainer.train_module.model.named_modules():
+            if hasattr(module, 'memory') and module.memory is not None:
+                memory_modules_found.append((module_name, module.memory))
+        
+        if len(memory_modules_found) > self.track_block_idx:
+            self.target_module_name, self.target_memory_module = memory_modules_found[self.track_block_idx]
+            print(f"Tracking only memory module: {self.target_module_name}")
+            
+            # Debug: Print structure of the tracked module
+            print(f"Memory module type: {type(self.target_memory_module)}")
+            param_count = 0
+            for param_name, param in self.target_memory_module.named_parameters():
+                param_count += 1
+                print(f"  Parameter {param_count}: {param_name}, shape: {param.shape if param is not None else 'None'}")
+        else:
+            print(f"Warning: Could not find memory module at index {self.track_block_idx}")
+    
+    def post_train_batch(self):
+        if self.trainer.global_step % self.log_interval == 0 and self.target_memory_module is not None:
+            self._log_memory_metrics()
+    
+    def _log_memory_metrics(self):
+        prefix = f"memory/{self.target_module_name.replace('.', '_')}"
+        
+        # Track only key metrics for main parameters
+        self._log_main_parameters(prefix)
+        
+        # Track only one representative MLP template weight
+        self._log_sample_mlp_weights(prefix)
+        
+    
+    def _log_main_parameters(self, prefix):
+        """Log only the main memory parameters (K, Q, V, alpha, eta, theta)"""
+        main_params = ['K', 'Q', 'V', 'alpha', 'eta', 'theta']
+        
+        for param_name in main_params:
+            if hasattr(self.target_memory_module, param_name):
+                param_module = getattr(self.target_memory_module, param_name)
+                if hasattr(param_module, 'weight') and param_module.weight is not None:
+                    weight = param_module.weight
+                    self.trainer.record_metric(f'{prefix}/{param_name}_weight_norm', weight.norm().item())
+                    self.trainer.record_metric(f'{prefix}/{param_name}_weight_mean', weight.mean().item())
+                    
+                    # Track one sample element
+                    self.trainer.record_metric(f'{prefix}/{param_name}_weight_sample', weight.flatten()[0].item())
+                
+                if hasattr(param_module, 'bias') and param_module.bias is not None:
+                    bias = param_module.bias
+                    self.trainer.record_metric(f'{prefix}/{param_name}_bias_norm', bias.norm().item())
+                    self.trainer.record_metric(f'{prefix}/{param_name}_bias_mean', bias.mean().item())
+    
+    def _log_sample_mlp_weights(self, prefix):
+        """Log only a sample of MLP template weights"""
+        if not hasattr(self.target_memory_module, 'mlp_template_weights'):
+            return
+            
+        mlp_weights = self.target_memory_module.mlp_template_weights
+        
+        if isinstance(mlp_weights, torch.nn.ParameterDict):
+            # Just track the first weight parameter we find
+            for key, param in mlp_weights.items():
+                if param is not None and 'weight' in key:
+                    self.trainer.record_metric(f'{prefix}/mlp_template_norm', param.norm().item())
+                    self.trainer.record_metric(f'{prefix}/mlp_template_mean', param.mean().item())
+                    self.trainer.record_metric(f'{prefix}/mlp_template_sample', param.flatten()[0].item())
+                    break  # Only log the first weight we find
 
 @dataclass
 class TitanExperimentConfig(Config):
@@ -225,9 +315,9 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
     data_loader_config = NumpyDataLoaderConfig(
         global_batch_size=GLOBAL_BATCH_SIZE, # Ensure GLOBAL_BATCH_SIZE is defined
         seed=34521, # Consider making this part of TitanExperimentConfig or a global
-        num_workers=2,  # Reduced for single GPU
+        num_workers=4,  # Reduced for single GPU
         # Add other NumpyDataLoaderConfig parameters as needed from your original setup
-        prefetch_factor=2 if 2 > 0 else None, # Example, assuming NUM_WORKERS = 2
+        prefetch_factor=4 if 2 > 0 else None, # Example, assuming NUM_WORKERS = 2
     )
 
     kwargs = {}
@@ -268,7 +358,7 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
     # Create a BNBAdamWConfig instance directly (instead of a function)
     optim_config = BNBAdamWConfig(
         lr=current_lr,
-        weight_decay=0.1,
+        weight_decay=0.01,
         betas=(0.9, 0.95),
         optim_bits=8,
         is_paged=True
@@ -317,6 +407,7 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
             )
         .with_callback("config_saver", ConfigSaverCallback())
         .with_callback("garbage_collector", GarbageCollectorCallback())
+        #.with_callback("memory_tracker", MemoryWeightTracker(log_interval=10))  # Add this line
     )
     
     class StepLimitCallback(Callback):
@@ -390,8 +481,22 @@ def train(config: TitanExperimentConfig):
     # Enable higher precision matrix multiplication
     torch.set_float32_matmul_precision('high')
     
-    # Build components
-    model = config.model.build(init_device="meta")
+    # Explicitly check which device we're using
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    log.info(f"Using device: {device} (CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')})")
+    
+    # Diagnostic output to confirm which GPU is being used
+    if torch.cuda.is_available():
+        current_device = torch.cuda.current_device()
+        device_name = torch.cuda.get_device_name(current_device)
+        device_props = torch.cuda.get_device_properties(current_device)
+        log.info(f"Using CUDA device {current_device}: {device_name}")
+        log.info(f"Device capability: {device_props.major}.{device_props.minor}")
+        log.info(f"Total memory: {device_props.total_memory / 1e9:.2f} GB")
+    
+    # Build components - use "cuda:0" here as this will map to your selected GPU
+    model = config.model.build(init_device=device)
+    model = model.to(device)
     
     # Configure which parameters to train based on phase
     only_train_memory = (config.phase == "memory_only")
@@ -399,45 +504,152 @@ def train(config: TitanExperimentConfig):
     log.info(f"Training mode: {config.phase} ({trainable_params:,} trainable parameters)")
     
     # Build training components
-    train_module = config.train_module.build(model)
+    train_module = config.train_module.build(model)    
     
     # Keep a reference to the original method from the instance
     original_tm_model_forward = train_module.model_forward
 
     # Define the new method that will replace train_module.model_forward
     # 'slf' will be the train_module instance when this is called as a method
-    def new_patched_model_forward(slf, input_ids, labels=None, **kwargs):
+    def new_patched_model_forward(slf, input_ids, labels=None, verbose_memory=False, **kwargs):
         # slf here is the train_module instance.
         # 'model' (the nn.Module) is accessible via slf.model
         # 'config' (TitanExperimentConfig) is accessible from the outer scope (closure)
         
         # The DEBUG print uses 'config' from the closure, which is fine.
         print(f"DEBUG: input_ids min: {input_ids.min()}, max: {input_ids.max()}, vocab_size: {config.model.vocab_size}")
+        # Add near the top of your training loop
+        torch.cuda.empty_cache()
         
         # Call the original model_forward method correctly
         outputs = original_tm_model_forward(input_ids, labels=labels, **kwargs)
+        logits, loss, ce_loss, z_loss = outputs
         
-        # Collect memory chunk losses
+        # Collect auxiliary losses from memory-enabled layers
+        total_gates_squared_loss = 0.0
+        total_internal_loss = 0.0
+        memory_layer_count = 0
+        
+        # Iterate over the modules of the raw model (slf.model)
+        for module_name, module_instance in slf.model.named_modules():
+            if isinstance(module_instance, MAGReorderedNormTransformerBlock):
+                memory_layer_count += 1
+                
+                # Auxiliary loss 1: Sum of gates^2
+                if hasattr(module_instance, 'gates') and module_instance.gates is not None:
+                    gates_squared = torch.sum(module_instance.gates ** 2)
+                    total_gates_squared_loss += gates_squared
+                
+                # Auxiliary loss 2: Internal loss from memory module
+                if hasattr(module_instance, 'internal_loss') and module_instance.internal_loss is not None:
+                    total_internal_loss += module_instance.internal_loss
+        
+        # Attach auxiliary losses to the logits using the OLMo Core function
+        if memory_layer_count > 0:
+            # Much smaller weights to start
+            gates_loss_weight = 0.0001   # Reduced from 0.001
+            internal_loss_weight = 0.01  # Reduced from 0.1
+            
+            # Or make them adaptive based on main loss scale
+            main_loss_scale = loss.detach()
+            gates_loss_weight = 0.001 * main_loss_scale / (total_gates_squared_loss.detach() + 1e-8)
+            internal_loss_weight = 0.01 * main_loss_scale / (total_internal_loss.detach() + 1e-8)
+            
+            # Clamp to reasonable ranges
+            gates_loss_weight = torch.clamp(gates_loss_weight, 1e-6, 0.01)
+            internal_loss_weight = torch.clamp(internal_loss_weight, 1e-6, 0.1)
+            
+            if total_gates_squared_loss > 0:
+                logits = attach_auxiliary_loss(logits, gates_loss_weight * total_gates_squared_loss)
+                trainer.record_metric('train/memory/aux_gates_squared_loss', total_gates_squared_loss)
+            
+            if total_internal_loss > 0:
+                logits = attach_auxiliary_loss(logits, internal_loss_weight * total_internal_loss)
+                trainer.record_metric('train/memory/aux_internal_loss', total_internal_loss)
+            
+            trainer.record_metric('train/memory/memory_layers_count', memory_layer_count)
+        
+        # Collect memory chunk losses (your existing code)
         all_chunk_losses_for_step = []
+        gate_stats_this_step = []
         # Iterate over the modules of the raw model (slf.model)
         for module_name, module_instance in slf.model.named_modules():
             if isinstance(module_instance, MAGReorderedNormTransformerBlock):
                 if hasattr(module_instance, 'chunk_losses_this_forward') and module_instance.chunk_losses_this_forward:
-                    all_chunk_losses_for_step.extend(module_instance.chunk_losses_this_forward)
-        trainer.record_metric('train/memory/avg_chunk_loss', np.mean(all_chunk_losses_for_step))
-        trainer.record_metric('train/memory/max_chunk_loss', np.max(all_chunk_losses_for_step))
+                    all_chunk_losses_for_step.append(torch.stack(module_instance.chunk_losses_this_forward))
+                    # Reset chunk losses for the next forward pass
+                    module_instance.chunk_losses_this_forward = []
+                if hasattr(module_instance, 'gates_stats') and module_instance.gates_stats:
+                    gate_stats_this_step.append(torch.stack(module_instance.gates_stats))
+                    # Reset gates stats for the next forward pass
+                    module_instance.gates_stats = []
         
-        avg_chunk_loss = 0.0
+        #print(len(all_chunk_losses_for_step), "chunk losses for this step") # 24 flat
+        #print(len(gate_stats_this_step), "gate stats for this step") # 16 flat
+
+        # Only compute metrics when we need them (avoid unnecessary CPU transfers)
         if all_chunk_losses_for_step:
-            avg_chunk_loss = sum(all_chunk_losses_for_step) / len(all_chunk_losses_for_step)
+            with torch.no_grad():
+                # Stack tensors first (keeping them on GPU)
+                stacked_losses = torch.stack(all_chunk_losses_for_step) # shaped [4, 6], [NUM_MEM_MODULES, NUM_CHUNKS]
+                #print(stacked_losses.shape, "stacked losses shape")
+                # Calculate stats on GPU
+                avg_loss = stacked_losses.mean()
+                max_loss = stacked_losses.max()
+                loss_slope = (stacked_losses[:, 0] - stacked_losses[:, -1]).mean()  # Slope from first to last chunk
+                last_loss = stacked_losses[:, -1].mean()
+                
+                # Record metrics (this will eventually need CPU values, but let PyTorch handle it)
+                trainer.record_metric('train/memory/avg_chunk_loss', avg_loss)
+                trainer.record_metric('train/memory/max_chunk_loss', max_loss)
+                trainer.record_metric('train/memory/loss_slope', loss_slope)
+                trainer.record_metric('train/memory/last_chunk_loss', last_loss)
+                
+                # For print statement, only move to CPU once if needed
+                # print(f"Loss stats - shape: {stacked_losses.shape}, avg: {avg_loss.item():.4f}, max: {max_loss.item():.4f}")
+                
+                # Store the calculated average loss on the train_module instance (slf)
+                slf.avg_memory_chunk_loss_for_step = avg_loss
         
-        # Store the calculated average loss on the train_module instance (slf)
-        slf.avg_memory_chunk_loss_for_step = avg_chunk_loss
+        all_chunk_losses_for_step = []
+        
+        if gate_stats_this_step:
+            with torch.no_grad():
+                # Stack tensors first (keeping them on GPU)
+                stacked_gate_stats = torch.stack(gate_stats_this_step) # Shaped [4, 4], [NUM_MEM_MODULES, NUM_STATS]
+                #print(stacked_gate_stats.shape, "stacked gates shape")
+                # Calculate stats on GPU                
+                min_gates_stat = stacked_gate_stats[:, 0].mean()  # Mean of min gate stats
+                max_gate_stat = stacked_gate_stats[:, 1].mean()  # Mean of max gate stats
+                mean_gate_stat = stacked_gate_stats[:, 2].mean()  # Mean of mean gate stats
+                std_gate_stat = stacked_gate_stats[:, 3].mean()  # Mean of std gate stats
+                med_gate_stat = stacked_gate_stats[:, 4].mean() # Mean of small gate stats if available
+                small_gate_stat = stacked_gate_stats[:, 5].mean()  # Mean of small gate stats if available
+                high_gate_stat = stacked_gate_stats[:, 6].mean()  # Mean of high gate stats if available
+                
+                # Record metrics (this will eventually need CPU values, but let PyTorch handle it)
+                trainer.record_metric('train/memory/mean_gate_stat', mean_gate_stat)
+                trainer.record_metric('train/memory/max_gate_stat', max_gate_stat)
+                trainer.record_metric('train/memory/min_gate_stat', min_gates_stat)
+                trainer.record_metric('train/memory/std_gate_stat', std_gate_stat)
+                trainer.record_metric('train/memory/small_gate_stat', small_gate_stat)
+                trainer.record_metric('train/memory/med_gate_stat', med_gate_stat)
+                trainer.record_metric('train/memory/high_gate_stat', high_gate_stat)
+                
+                # For print statement, only move to CPU once if needed
+                # print(f"Gate stats - shape: {stacked_gate_stats.shape}, avg: {avg_gate_stat.item():.4f}, max: {max_gate_stat.item():.4f}")
+        gate_stats_this_step = []
+        
+        # In the patched model_forward function, add this line after calculating gradients:
+        if verbose_memory:
+            for module_name, module in slf.model.named_modules():
+                if hasattr(module, 'memory') and module.memory is not None:
+                    module.memory.check_parameter_gradients()
+                    print(module.memory.mlp_template_weights)
 
         # Dummy loss logic (using slf.model for parameters)
         # 'config' is from the closure.
         if config.phase == "memory_only":
-            logits, loss, ce_loss, z_loss = outputs
             dummy_loss = 0.0
             for name, param in slf.model.named_parameters():
                 if not param.requires_grad:
@@ -445,7 +657,6 @@ def train(config: TitanExperimentConfig):
             loss = loss + dummy_loss
             return logits, loss, ce_loss, z_loss
         else:  # "full_model" phase
-            logits, loss, ce_loss, z_loss = outputs
             dummy_param_loss = 0.0
             for param in slf.model.parameters():
                 if param.requires_grad:
@@ -472,17 +683,11 @@ def train(config: TitanExperimentConfig):
     if config.phase == "full_model":
         # Use deepcopy instead of .copy() method
         trainer_config = copy.deepcopy(config.trainer)
-        trainer_config.load_from_checkpoint = False
         
         # Create trainer with modified config
         trainer = trainer_config.build(train_module, data_loader)
         
-        # Disable automatic checkpoint loading
-        trainer._loaded_checkpoint = True
-        
-        # Override methods to ensure no checkpoint loading
-        original_maybe_load = trainer.maybe_load_checkpoint
-        trainer.maybe_load_checkpoint = lambda *args, **kwargs: True
+        trainer.maybe_load_checkpoint(CHECKPOINT)
         
         # Save config to checkpoint dir
         config_dict = config.as_config_dict()
@@ -555,6 +760,27 @@ Train the full-model phase with checkpoint:
     if cmd != "train":
         print(usage)
         sys.exit(1)
+
+    # GPU selection using CUDA_VISIBLE_DEVICES
+    # This should be done before any torch.cuda calls or prepare_training_environment
+    if torch.cuda.is_available():
+        num_gpus = torch.cuda.device_count()
+        if DESIRED_GPU_ID < num_gpus:
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(DESIRED_GPU_ID)
+            log.info(
+                f"Setting CUDA_VISIBLE_DEVICES='{DESIRED_GPU_ID}'. "
+                f"PyTorch will see GPU {DESIRED_GPU_ID} as cuda:0."
+            )
+        else:
+            log.warning(
+                f"Desired GPU ID {DESIRED_GPU_ID} is not available (found {num_gpus} GPUs). "
+                f"Defaulting to GPU 0 if available. Otherwise, CPU will be used."
+            )
+            if num_gpus > 0:
+                os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+            # If no GPUs, PyTorch will fall back to CPU.
+    else:
+        log.info("CUDA not available. Training will use CPU.")
 
     # For single GPU, use this environment variable to disable distributed setup
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"

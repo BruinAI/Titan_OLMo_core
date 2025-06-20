@@ -232,6 +232,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
         self.sigmoid = nn.Sigmoid()
         self.gate_cache = None
         self.chunk_losses_this_forward: List[float] = []
+        self.gates_stats: List[torch.Tensor] = []
 
     def forward(
         self,
@@ -404,6 +405,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             
         # iterating through the input in chunks
         self.chunk_losses_this_forward = []
+        self.internal_loss = 0
         gates = []  # list to store the gates (avoid redundant computation)
         for i in range(1 + ((x.size(1) - 1) // self.chunk_size)):
             start = i * self.chunk_size
@@ -413,12 +415,20 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             gate = self.memory.retrieve(chunk_x) 
             
             _loss = self.memory.update(chunk_x)
-            self.chunk_losses_this_forward.append(_loss.item())
+            self.internal_loss += _loss
+            self.chunk_losses_this_forward.append(_loss.detach())
             #print(f"Chunk {i}: Loss = {_loss.item()}")
             gates.append(gate)
             self.memory.print_mlp_state_stats()
             self.memory.train_initial_mlp()
-        gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
+        self.gates = torch.cat(gates, dim=1)  # concatenate the gates for the whole seq
+        
+        det_gates = self.gates.detach()
+        med_gates = ((det_gates < 2) & (det_gates > -2)).float().mean()
+        low_gates = (det_gates < -2).float().mean()
+        hi_gates = (det_gates > 2).float().mean()
+        self.gates_stats = [det_gates.min(), det_gates.max(), det_gates.mean(), det_gates.std(), med_gates, low_gates, hi_gates]
+        del det_gates
         
         if self.use_global_sw:
             repeated_persistent_tokens = self.memory.persistent_tokens.unsqueeze(0)
@@ -431,7 +441,7 @@ class MAGReorderedNormTransformerBlock(TransformerBlock):
             attn = self.attention(x_with_persistent, **kwargs)[:, self.num_global_tokens:, :] # Remove persistent tokens from attention output
         else:
             attn = self.attention(x, **kwargs)
-        attn_with_mem = nn.Sigmoid()(gates) * attn  # MAG gate
+        attn_with_mem = nn.Sigmoid()(self.gates) * attn  # MAG gate
 
         # basic attn normalization + feed forward
         h = x + self.dropout(self.attention_norm(attn_with_mem))
