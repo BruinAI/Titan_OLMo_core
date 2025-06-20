@@ -516,7 +516,20 @@ def _http_file_size(url: str) -> int:
     return int(content_length)
 
 
-@retriable()
+@retriable(
+    max_attempts=5,  # Increase attempts for server errors
+    retriable_errors=(
+        requests.exceptions.ConnectionError,
+        requests.exceptions.Timeout,
+        requests.exceptions.HTTPError,  # Add this line!
+    ),
+    retry_condition=lambda exc: (
+        # Only retry on 5xx server errors, not 4xx client errors
+        isinstance(exc, requests.exceptions.HTTPError) and 
+        exc.response is not None and 
+        500 <= exc.response.status_code < 600
+    )
+)
 def _http_get_bytes_range(url: str, bytes_start: int, num_bytes: int) -> bytes:
     response = requests.get(
         url, headers={"Range": f"bytes={bytes_start}-{bytes_start+num_bytes-1}"}

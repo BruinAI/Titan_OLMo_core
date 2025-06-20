@@ -28,6 +28,8 @@ from olmo_core.train.trainer import Trainer # For type hinting
 from olmo_core.train.train_module import TrainModule # For type hinting
 import types # For MethodType
 
+from olmo_core.ops import attach_auxiliary_loss
+
 
 if "olmo_core" not in sys.path:
     sys.path.append("..")
@@ -102,10 +104,9 @@ log = logging.getLogger(__name__)
 # Phase configuration
 # At the top of the file, change this line
 PHASE = "full_model"  # Change from "memory_only" to "full_model"
-CHECKPOINT = None  # Make sure this is None for a fresh start
 
 # Set this if you want to start training from an existing checkpoint
-CHECKPOINT: Optional[str] = None #"/ssd/karen/titan_checkpoints/shape_get/step800"
+CHECKPOINT: Optional[str] = None # "/ssd/karen/titan_checkpoints/checkpoint_restart_3500/step85900"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
 
 # Data configuration
 # Path to your manifest file listing .npy data shards
@@ -123,7 +124,7 @@ SEQUENCE_LENGTH = 1024  # Limited to 1024 tokens as specified
 INTRA_DOCUMENT_MASKING = False
 
 # For single GPU, we can use a slightly larger batch size
-BATCH_SIZE = 5  # Increased from 2 for single GPU efficiency
+BATCH_SIZE = 4  # Increased from 2 for single GPU efficiency
 RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
 GLOBAL_BATCH_SIZE = RANK_MICROBATCH_SIZE
 
@@ -132,7 +133,7 @@ MEMORY_LAYERS = [3,7,11,15]  # Every 4th layer
 USE_SLIDING_WINDOW = True
 WINDOW_SIZE = 512
 PERSISTENT_MEM_LEN = 4  # Number of persistent memory tokens
-CHUNK_SIZE = 192  # Size of chunks for memory processing
+CHUNK_SIZE = 256  # Size of chunks for memory processing
 N_LAYERS = 2  # Number of layers in memory component
 HIDDEN_DIM_MULTIPLE = 2  # Multiple for memory hidden dimension
 
@@ -522,28 +523,87 @@ def train(config: TitanExperimentConfig):
         
         # Call the original model_forward method correctly
         outputs = original_tm_model_forward(input_ids, labels=labels, **kwargs)
+        logits, loss, ce_loss, z_loss = outputs
         
-        # Collect memory chunk losses
+        # Collect auxiliary losses from memory-enabled layers
+        total_gates_squared_loss = 0.0
+        total_internal_loss = 0.0
+        memory_layer_count = 0
+        
+        # Iterate over the modules of the raw model (slf.model)
+        for module_name, module_instance in slf.model.named_modules():
+            if isinstance(module_instance, MAGReorderedNormTransformerBlock):
+                memory_layer_count += 1
+                
+                # Auxiliary loss 1: Sum of gates^2
+                if hasattr(module_instance, 'gates') and module_instance.gates is not None:
+                    gates_squared = torch.sum(module_instance.gates ** 2)
+                    total_gates_squared_loss += gates_squared
+                
+                # Auxiliary loss 2: Internal loss from memory module
+                if hasattr(module_instance, 'internal_loss') and module_instance.internal_loss is not None:
+                    total_internal_loss += module_instance.internal_loss
+        
+        # Attach auxiliary losses to the logits using the OLMo Core function
+        if memory_layer_count > 0:
+            # Much smaller weights to start
+            gates_loss_weight = 0.0001   # Reduced from 0.001
+            internal_loss_weight = 0.01  # Reduced from 0.1
+            
+            # Or make them adaptive based on main loss scale
+            main_loss_scale = loss.detach()
+            gates_loss_weight = 0.001 * main_loss_scale / (total_gates_squared_loss.detach() + 1e-8)
+            internal_loss_weight = 0.01 * main_loss_scale / (total_internal_loss.detach() + 1e-8)
+            
+            # Clamp to reasonable ranges
+            gates_loss_weight = torch.clamp(gates_loss_weight, 1e-6, 0.01)
+            internal_loss_weight = torch.clamp(internal_loss_weight, 1e-6, 0.1)
+            
+            if total_gates_squared_loss > 0:
+                logits = attach_auxiliary_loss(logits, gates_loss_weight * total_gates_squared_loss)
+                trainer.record_metric('train/memory/aux_gates_squared_loss', total_gates_squared_loss)
+            
+            if total_internal_loss > 0:
+                logits = attach_auxiliary_loss(logits, internal_loss_weight * total_internal_loss)
+                trainer.record_metric('train/memory/aux_internal_loss', total_internal_loss)
+            
+            trainer.record_metric('train/memory/memory_layers_count', memory_layer_count)
+        
+        # Collect memory chunk losses (your existing code)
         all_chunk_losses_for_step = []
+        gate_stats_this_step = []
         # Iterate over the modules of the raw model (slf.model)
         for module_name, module_instance in slf.model.named_modules():
             if isinstance(module_instance, MAGReorderedNormTransformerBlock):
                 if hasattr(module_instance, 'chunk_losses_this_forward') and module_instance.chunk_losses_this_forward:
-                    all_chunk_losses_for_step.extend(module_instance.chunk_losses_this_forward)
+                    all_chunk_losses_for_step.append(torch.stack(module_instance.chunk_losses_this_forward))
+                    # Reset chunk losses for the next forward pass
                     module_instance.chunk_losses_this_forward = []
+                if hasattr(module_instance, 'gates_stats') and module_instance.gates_stats:
+                    gate_stats_this_step.append(torch.stack(module_instance.gates_stats))
+                    # Reset gates stats for the next forward pass
+                    module_instance.gates_stats = []
+        
+        #print(len(all_chunk_losses_for_step), "chunk losses for this step") # 24 flat
+        #print(len(gate_stats_this_step), "gate stats for this step") # 16 flat
 
         # Only compute metrics when we need them (avoid unnecessary CPU transfers)
         if all_chunk_losses_for_step:
             with torch.no_grad():
                 # Stack tensors first (keeping them on GPU)
-                stacked_losses = torch.stack(all_chunk_losses_for_step)
+                stacked_losses = torch.stack(all_chunk_losses_for_step) # shaped [4, 6], [NUM_MEM_MODULES, NUM_CHUNKS]
+                #print(stacked_losses.shape, "stacked losses shape")
                 # Calculate stats on GPU
                 avg_loss = stacked_losses.mean()
                 max_loss = stacked_losses.max()
+                loss_slope = (stacked_losses[:, 0] - stacked_losses[:, -1]).mean()  # Slope from first to last chunk
+                last_loss = stacked_losses[:, -1].mean()
                 
                 # Record metrics (this will eventually need CPU values, but let PyTorch handle it)
                 trainer.record_metric('train/memory/avg_chunk_loss', avg_loss)
                 trainer.record_metric('train/memory/max_chunk_loss', max_loss)
+                trainer.record_metric('train/memory/loss_slope', loss_slope)
+                trainer.record_metric('train/memory/last_chunk_loss', last_loss)
                 
                 # For print statement, only move to CPU once if needed
                 # print(f"Loss stats - shape: {stacked_losses.shape}, avg: {avg_loss.item():.4f}, max: {max_loss.item():.4f}")
@@ -552,6 +612,33 @@ def train(config: TitanExperimentConfig):
                 slf.avg_memory_chunk_loss_for_step = avg_loss
         
         all_chunk_losses_for_step = []
+        
+        if gate_stats_this_step:
+            with torch.no_grad():
+                # Stack tensors first (keeping them on GPU)
+                stacked_gate_stats = torch.stack(gate_stats_this_step) # Shaped [4, 4], [NUM_MEM_MODULES, NUM_STATS]
+                #print(stacked_gate_stats.shape, "stacked gates shape")
+                # Calculate stats on GPU                
+                min_gates_stat = stacked_gate_stats[:, 0].mean()  # Mean of min gate stats
+                max_gate_stat = stacked_gate_stats[:, 1].mean()  # Mean of max gate stats
+                mean_gate_stat = stacked_gate_stats[:, 2].mean()  # Mean of mean gate stats
+                std_gate_stat = stacked_gate_stats[:, 3].mean()  # Mean of std gate stats
+                med_gate_stat = stacked_gate_stats[:, 4].mean() # Mean of small gate stats if available
+                small_gate_stat = stacked_gate_stats[:, 5].mean()  # Mean of small gate stats if available
+                high_gate_stat = stacked_gate_stats[:, 6].mean()  # Mean of high gate stats if available
+                
+                # Record metrics (this will eventually need CPU values, but let PyTorch handle it)
+                trainer.record_metric('train/memory/mean_gate_stat', mean_gate_stat)
+                trainer.record_metric('train/memory/max_gate_stat', max_gate_stat)
+                trainer.record_metric('train/memory/min_gate_stat', min_gates_stat)
+                trainer.record_metric('train/memory/std_gate_stat', std_gate_stat)
+                trainer.record_metric('train/memory/small_gate_stat', small_gate_stat)
+                trainer.record_metric('train/memory/med_gate_stat', med_gate_stat)
+                trainer.record_metric('train/memory/high_gate_stat', high_gate_stat)
+                
+                # For print statement, only move to CPU once if needed
+                # print(f"Gate stats - shape: {stacked_gate_stats.shape}, avg: {avg_gate_stat.item():.4f}, max: {max_gate_stat.item():.4f}")
+        gate_stats_this_step = []
         
         # In the patched model_forward function, add this line after calculating gradients:
         if verbose_memory:
@@ -563,7 +650,6 @@ def train(config: TitanExperimentConfig):
         # Dummy loss logic (using slf.model for parameters)
         # 'config' is from the closure.
         if config.phase == "memory_only":
-            logits, loss, ce_loss, z_loss = outputs
             dummy_loss = 0.0
             for name, param in slf.model.named_parameters():
                 if not param.requires_grad:
@@ -571,7 +657,6 @@ def train(config: TitanExperimentConfig):
             loss = loss + dummy_loss
             return logits, loss, ce_loss, z_loss
         else:  # "full_model" phase
-            logits, loss, ce_loss, z_loss = outputs
             dummy_param_loss = 0.0
             for param in slf.model.parameters():
                 if param.requires_grad:
@@ -598,17 +683,11 @@ def train(config: TitanExperimentConfig):
     if config.phase == "full_model":
         # Use deepcopy instead of .copy() method
         trainer_config = copy.deepcopy(config.trainer)
-        trainer_config.load_from_checkpoint = False
         
         # Create trainer with modified config
         trainer = trainer_config.build(train_module, data_loader)
         
-        # Disable automatic checkpoint loading
-        trainer._loaded_checkpoint = True
-        
-        # Override methods to ensure no checkpoint loading
-        original_maybe_load = trainer.maybe_load_checkpoint
-        trainer.maybe_load_checkpoint = lambda *args, **kwargs: True
+        trainer.maybe_load_checkpoint(CHECKPOINT)
         
         # Save config to checkpoint dir
         config_dict = config.as_config_dict()

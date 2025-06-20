@@ -257,6 +257,8 @@ class ParallelMLPs(nn.Module):
             clip_mem_g = 4
             clip_sur_g = 10
             ortho_lambda = 1e-5  # orthonormality coefficient
+            
+            # clamp_w = 1e2  previous version, ATTEMPTING TO REMOVE CLAMP TO MAKE THE INITIAL MEMORY WEIGHTS LEARN BETTER
             clamp_w = 1e2
 
             # mem_grads = [self.soft_sqrt_clip(g) if g is not None else g for g in mem_grads]
@@ -268,7 +270,7 @@ class ParallelMLPs(nn.Module):
                 g_proj = g - W @ sym                     # remove normal component
                 return (1-mixing)*g_proj + mixing*g      # optional blend
 
-            # In update_memory, *before* update_param loop
+            # # In update_memory, *before* update_param loop
             # proj_mem_grads = []
             # for name, g in zip(current_params.keys(), mem_grads):
             #     if g is not None and 'weight' in name and g.ndim == 2:
@@ -276,7 +278,7 @@ class ParallelMLPs(nn.Module):
             #         W = current_params[name].detach()
                     
             #         # (1-mixing) x projection + mixing x original
-            #         g = project_to_stiefel(W, g, mixing=0.9) 
+            #         g = project_to_stiefel(W, g, mixing=0) 
             #     proj_mem_grads.append(g)
 
             # mem_grads = [self.scaled_root_excess_norm(g, clip_mem_g) if g is not None else g for g in mem_grads]
@@ -296,7 +298,8 @@ class ParallelMLPs(nn.Module):
                 # if 'weight' in name and len(new_param.shape) == 2:
                 #     new_param = self.orthonormality_regularization(new_param, ortho_lambda)
                 # print(f"Updating param {name} with norm: {orig_param.norm().item()}, grad norm: {grad.norm().item()}")
-                return new_param.detach().clamp(-clamp_w, clamp_w).requires_grad_(True)
+                # return new_param.detach().clamp(-clamp_w, clamp_w).requires_grad_(True)
+                return new_param.clamp(-clamp_w, clamp_w).requires_grad_(True) # TRYING WITHOUT DETACH TO RESTORE GRADIENT FLOW
 
             # q_T * S_0 - Σ_j θ·D_{T,j}·u_j
             def update_surprise(name, grad):
@@ -308,6 +311,7 @@ class ParallelMLPs(nn.Module):
                 new_surprise = q_T[idx] * old_surprise - grad
                 # print(f"Updating param {name} with norm: {old_surprise.norm().item()}, update norm: {grad.norm().item()}")
                 return new_surprise.detach().clamp(-clamp_w, clamp_w)
+                #return new_surprise.clamp(-clamp_w, clamp_w) # TRYING WITHOUT DETACH TO RESTORE GRADIENT FLOW
 
             new_params = {
                 name: update_param(name, grad)
