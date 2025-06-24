@@ -125,8 +125,9 @@ INTRA_DOCUMENT_MASKING = False
 
 # For single GPU, we can use a slightly larger batch size
 BATCH_SIZE = 4  # Increased from 2 for single GPU efficiency
+EFFECTIVE_BATCH_SIZE_COEFFICIENT = 12
 RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
-GLOBAL_BATCH_SIZE = RANK_MICROBATCH_SIZE
+GLOBAL_BATCH_SIZE = EFFECTIVE_BATCH_SIZE_COEFFICIENT * BATCH_SIZE * SEQUENCE_LENGTH # Total batch size across all ranks
 
 # Memory configuration
 MEMORY_LAYERS = [3,7,11,15]  # Every 4th layer
@@ -160,7 +161,7 @@ memory_config = MemoryConfig(
 # Training configuration
 MEMORY_ONLY_STEPS = 2000  # Number of steps for memory-only training
 LEARNING_RATE = 5e-5
-FULL_MODEL_LEARNING_RATE = 3e-4
+FULL_MODEL_LEARNING_RATE = 2e-4
 
 # Local save path - create checkpoints directory if it doesn't exist
 SAVE_DIR = os.path.expanduser("~/titan_checkpoints")
@@ -169,6 +170,60 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 ###########################
 #### END CONFIGURATION ####
 ###########################
+
+# Add these as class attributes to your trainer or module
+class AuxiliaryLossTracker:
+    def __init__(self, momentum=0.99, base_gates_weight=0.001, base_internal_weight=0.01, update_interval=10, enable_scaling=True):
+        self.momentum = momentum
+        self.running_avg_gates = None
+        self.running_avg_internal = None
+        self.running_avg_main = None
+        self.step_count = 0
+        self.base_gates_weight = base_gates_weight
+        self.base_internal_weight = base_internal_weight
+        self.update_interval = update_interval
+        self.enable_scaling = enable_scaling  # New parameter to enable/disable scaling
+        
+        # Cache the current weights to avoid recalculating every step
+        self.current_gates_weight = base_gates_weight
+        self.current_internal_weight = base_internal_weight
+        self.last_update_step = 0
+    
+    def update_and_get_weights(self, main_loss, gates_loss, internal_loss):
+        
+        # If scaling is disabled, just return the base weights without any computation
+        if not self.enable_scaling:
+            self.step_count += 1
+            return self.base_gates_weight, self.base_internal_weight
+        
+        # Always update running averages (for monitoring) - only if scaling is enabled
+        if self.running_avg_main is None:
+            self.running_avg_main = main_loss.detach()
+            self.running_avg_gates = gates_loss.detach() if gates_loss > 0 else torch.tensor(1e-6)
+            self.running_avg_internal = internal_loss.detach() if internal_loss > 0 else torch.tensor(1e-6)
+        else:
+            self.running_avg_main = self.momentum * self.running_avg_main + (1 - self.momentum) * main_loss.detach()
+            if gates_loss > 0:
+                self.running_avg_gates = self.momentum * self.running_avg_gates + (1 - self.momentum) * gates_loss.detach()
+            if internal_loss > 0:
+                self.running_avg_internal = self.momentum * self.running_avg_internal + (1 - self.momentum) * internal_loss.detach()
+        
+        # Only recalculate weights every update_interval steps
+        if (self.step_count % self.update_interval) == 0:
+            self.current_gates_weight = self.base_gates_weight * self.running_avg_main / (self.running_avg_gates + 1e-8)
+            self.current_internal_weight = self.base_internal_weight * self.running_avg_main / (self.running_avg_internal + 1e-8)
+            
+            self.last_update_step = self.step_count
+        
+        # Return the cached weights (updated only every update_interval steps)
+        self.step_count += 1
+        return self.current_gates_weight, self.current_internal_weight
+    
+    def get_current_weights(self):
+        """Get current weights without updating anything"""
+        if not self.enable_scaling:
+            return self.base_gates_weight, self.base_internal_weight
+        return self.current_gates_weight, self.current_internal_weight
 
 class MemoryWeightTracker(Callback):
     def __init__(self, log_interval=10, track_block_idx=0, track_gradients=True):
@@ -474,6 +529,96 @@ def configure_training_parameters(model, only_train_memory=True):
     # Return count of trainable parameters
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+
+def log_accumulated_memory_metrics(train_module, trainer, aux_loss_tracker):
+    """Log accumulated memory metrics averaged across gradient accumulation steps"""
+    accumulator = train_module.memory_metrics_accumulator
+    
+    with torch.no_grad():
+        # Log auxiliary loss metrics - only if scaling is enabled
+        if aux_loss_tracker.enable_scaling:
+            if accumulator['aux_gates_losses']:
+                avg_gates_loss = torch.stack(accumulator['aux_gates_losses']).mean()
+                trainer.record_metric('train/memory/aux_gates_squared_loss', avg_gates_loss)
+                trainer.record_metric('train/memory/gates_weight', aux_loss_tracker.current_gates_weight)
+                # Only log running averages if they exist (not None)
+                if aux_loss_tracker.running_avg_gates is not None:
+                    trainer.record_metric('train/memory/running_avg_gates', aux_loss_tracker.running_avg_gates)
+            
+            if accumulator['aux_internal_losses']:
+                avg_internal_loss = torch.stack(accumulator['aux_internal_losses']).mean()
+                trainer.record_metric('train/memory/aux_internal_loss', avg_internal_loss)
+                trainer.record_metric('train/memory/internal_weight', aux_loss_tracker.current_internal_weight)
+                # Only log running averages if they exist (not None)
+                if aux_loss_tracker.running_avg_internal is not None:
+                    trainer.record_metric('train/memory/running_avg_internal', aux_loss_tracker.running_avg_internal)
+            
+            # Log running averages - only if they exist
+            if aux_loss_tracker.running_avg_main is not None:
+                trainer.record_metric('train/memory/running_avg_main_loss', aux_loss_tracker.running_avg_main)
+        else:
+            # When scaling is disabled, just log the fixed weights
+            if accumulator['aux_gates_losses']:
+                avg_gates_loss = torch.stack(accumulator['aux_gates_losses']).mean()
+                trainer.record_metric('train/memory/aux_gates_squared_loss', avg_gates_loss)
+                trainer.record_metric('train/memory/gates_weight', aux_loss_tracker.base_gates_weight)
+            
+            if accumulator['aux_internal_losses']:
+                avg_internal_loss = torch.stack(accumulator['aux_internal_losses']).mean()
+                trainer.record_metric('train/memory/aux_internal_loss', avg_internal_loss)
+                trainer.record_metric('train/memory/internal_weight', aux_loss_tracker.base_internal_weight)
+        
+        # Log chunk loss metrics (this doesn't depend on scaling)
+        if accumulator['chunk_losses']:
+            # Stack all chunk losses from all forward passes: [num_forwards, num_modules, num_chunks]
+            all_chunk_losses = torch.stack(accumulator['chunk_losses'])  # Shape: [8, 4, 6]
+            
+            # Average across forward passes
+            avg_chunk_losses = all_chunk_losses.mean(dim=0)  # Shape: [4, 6]
+            
+            # Calculate metrics
+            avg_loss = avg_chunk_losses.mean()
+            max_loss = avg_chunk_losses.max()
+            loss_slope = (avg_chunk_losses[:, 0] - avg_chunk_losses[:, -1]).mean()
+            last_loss = avg_chunk_losses[:, -1].mean()
+            
+            trainer.record_metric('train/memory/avg_chunk_loss', avg_loss)
+            trainer.record_metric('train/memory/max_chunk_loss', max_loss)
+            trainer.record_metric('train/memory/loss_slope', loss_slope)
+            trainer.record_metric('train/memory/last_chunk_loss', last_loss)
+        
+        # Log gate statistics (this doesn't depend on scaling)
+        if accumulator['gate_stats']:
+            # Stack all gate stats from all forward passes: [num_forwards, num_modules, num_stats]
+            all_gate_stats = torch.stack(accumulator['gate_stats'])  # Shape: [8, 4, 7]
+            
+            # Average across forward passes
+            avg_gate_stats = all_gate_stats.mean(dim=0)  # Shape: [4, 7]
+            
+            # Calculate metrics (averaging across modules)
+            min_gates_stat = avg_gate_stats[:, 0].mean()
+            max_gate_stat = avg_gate_stats[:, 1].mean()
+            mean_gate_stat = avg_gate_stats[:, 2].mean()
+            std_gate_stat = avg_gate_stats[:, 3].mean()
+            med_gate_stat = avg_gate_stats[:, 4].mean()
+            small_gate_stat = avg_gate_stats[:, 5].mean()
+            high_gate_stat = avg_gate_stats[:, 6].mean()
+            
+            trainer.record_metric('train/memory/mean_gate_stat', mean_gate_stat)
+            trainer.record_metric('train/memory/max_gate_stat', max_gate_stat)
+            trainer.record_metric('train/memory/min_gate_stat', min_gates_stat)
+            trainer.record_metric('train/memory/std_gate_stat', std_gate_stat)
+            trainer.record_metric('train/memory/small_gate_stat', small_gate_stat)
+            trainer.record_metric('train/memory/med_gate_stat', med_gate_stat)
+            trainer.record_metric('train/memory/high_gate_stat', high_gate_stat)
+        
+        # Log memory layer count (this doesn't need accumulation)
+        memory_layer_count = 0
+        for module_name, module_instance in train_module.model.named_modules():
+            if isinstance(module_instance, MAGReorderedNormTransformerBlock):
+                memory_layer_count += 1
+        trainer.record_metric('train/memory/memory_layers_count', memory_layer_count)
+
 def train(config: TitanExperimentConfig):
     # Set RNG states on all devices
     seed_all(config.init_seed)
@@ -508,6 +653,14 @@ def train(config: TitanExperimentConfig):
     
     # Keep a reference to the original method from the instance
     original_tm_model_forward = train_module.model_forward
+    
+    aux_loss_tracker = AuxiliaryLossTracker(
+        momentum=0.999, 
+        base_gates_weight=0.005, 
+        base_internal_weight=0.1,
+        update_interval=50,  # Update weights every 50 steps
+        enable_scaling=True
+    )
 
     # Define the new method that will replace train_module.model_forward
     # 'slf' will be the train_module instance when this is called as a method
@@ -535,110 +688,81 @@ def train(config: TitanExperimentConfig):
             if isinstance(module_instance, MAGReorderedNormTransformerBlock):
                 memory_layer_count += 1
                 
-                # Auxiliary loss 1: Sum of gates^2
                 if hasattr(module_instance, 'gates') and module_instance.gates is not None:
                     gates_squared = torch.sum(module_instance.gates ** 2)
                     total_gates_squared_loss += gates_squared
                 
-                # Auxiliary loss 2: Internal loss from memory module
                 if hasattr(module_instance, 'internal_loss') and module_instance.internal_loss is not None:
                     total_internal_loss += module_instance.internal_loss
         
-        # Attach auxiliary losses to the logits using the OLMo Core function
+        
+        # Initialize accumulation storage if it doesn't exist
+        if not hasattr(slf, 'memory_metrics_accumulator'):
+            slf.memory_metrics_accumulator = {
+                'chunk_losses': [],
+                'gate_stats': [],
+                'aux_gates_losses': [],
+                'aux_internal_losses': [],
+                'forward_count': 0
+            }
+        
+        # Get adaptive weights based on running averages
         if memory_layer_count > 0:
-            # Much smaller weights to start
-            gates_loss_weight = 0.0001   # Reduced from 0.001
-            internal_loss_weight = 0.01  # Reduced from 0.1
-            
-            # Or make them adaptive based on main loss scale
-            main_loss_scale = loss.detach()
-            gates_loss_weight = 0.001 * main_loss_scale / (total_gates_squared_loss.detach() + 1e-8)
-            internal_loss_weight = 0.01 * main_loss_scale / (total_internal_loss.detach() + 1e-8)
-            
-            # Clamp to reasonable ranges
-            gates_loss_weight = torch.clamp(gates_loss_weight, 1e-6, 0.01)
-            internal_loss_weight = torch.clamp(internal_loss_weight, 1e-6, 0.1)
+            gates_weight, internal_weight = aux_loss_tracker.update_and_get_weights(
+                loss, total_gates_squared_loss, total_internal_loss
+            )
             
             if total_gates_squared_loss > 0:
-                logits = attach_auxiliary_loss(logits, gates_loss_weight * total_gates_squared_loss)
-                trainer.record_metric('train/memory/aux_gates_squared_loss', total_gates_squared_loss)
+                loss = attach_auxiliary_loss(loss, gates_weight * total_gates_squared_loss)
+                # Accumulate instead of logging immediately
+                slf.memory_metrics_accumulator['aux_gates_losses'].append(total_gates_squared_loss.detach())
             
             if total_internal_loss > 0:
-                logits = attach_auxiliary_loss(logits, internal_loss_weight * total_internal_loss)
-                trainer.record_metric('train/memory/aux_internal_loss', total_internal_loss)
-            
-            trainer.record_metric('train/memory/memory_layers_count', memory_layer_count)
+                loss = attach_auxiliary_loss(loss, internal_weight * total_internal_loss)
+                # Accumulate instead of logging immediately
+                slf.memory_metrics_accumulator['aux_internal_losses'].append(total_internal_loss.detach())
         
-        # Collect memory chunk losses (your existing code)
+        # Collect memory chunk losses
         all_chunk_losses_for_step = []
         gate_stats_this_step = []
-        # Iterate over the modules of the raw model (slf.model)
+        
         for module_name, module_instance in slf.model.named_modules():
             if isinstance(module_instance, MAGReorderedNormTransformerBlock):
                 if hasattr(module_instance, 'chunk_losses_this_forward') and module_instance.chunk_losses_this_forward:
                     all_chunk_losses_for_step.append(torch.stack(module_instance.chunk_losses_this_forward))
-                    # Reset chunk losses for the next forward pass
                     module_instance.chunk_losses_this_forward = []
                 if hasattr(module_instance, 'gates_stats') and module_instance.gates_stats:
                     gate_stats_this_step.append(torch.stack(module_instance.gates_stats))
-                    # Reset gates stats for the next forward pass
                     module_instance.gates_stats = []
         
-        #print(len(all_chunk_losses_for_step), "chunk losses for this step") # 24 flat
-        #print(len(gate_stats_this_step), "gate stats for this step") # 16 flat
-
-        # Only compute metrics when we need them (avoid unnecessary CPU transfers)
+        # Accumulate chunk losses and gate stats
         if all_chunk_losses_for_step:
-            with torch.no_grad():
-                # Stack tensors first (keeping them on GPU)
-                stacked_losses = torch.stack(all_chunk_losses_for_step) # shaped [4, 6], [NUM_MEM_MODULES, NUM_CHUNKS]
-                #print(stacked_losses.shape, "stacked losses shape")
-                # Calculate stats on GPU
-                avg_loss = stacked_losses.mean()
-                max_loss = stacked_losses.max()
-                loss_slope = (stacked_losses[:, 0] - stacked_losses[:, -1]).mean()  # Slope from first to last chunk
-                last_loss = stacked_losses[:, -1].mean()
-                
-                # Record metrics (this will eventually need CPU values, but let PyTorch handle it)
-                trainer.record_metric('train/memory/avg_chunk_loss', avg_loss)
-                trainer.record_metric('train/memory/max_chunk_loss', max_loss)
-                trainer.record_metric('train/memory/loss_slope', loss_slope)
-                trainer.record_metric('train/memory/last_chunk_loss', last_loss)
-                
-                # For print statement, only move to CPU once if needed
-                # print(f"Loss stats - shape: {stacked_losses.shape}, avg: {avg_loss.item():.4f}, max: {max_loss.item():.4f}")
-                
-                # Store the calculated average loss on the train_module instance (slf)
-                slf.avg_memory_chunk_loss_for_step = avg_loss
-        
-        all_chunk_losses_for_step = []
+            stacked_losses = torch.stack(all_chunk_losses_for_step)
+            slf.memory_metrics_accumulator['chunk_losses'].append(stacked_losses.detach())
         
         if gate_stats_this_step:
-            with torch.no_grad():
-                # Stack tensors first (keeping them on GPU)
-                stacked_gate_stats = torch.stack(gate_stats_this_step) # Shaped [4, 4], [NUM_MEM_MODULES, NUM_STATS]
-                #print(stacked_gate_stats.shape, "stacked gates shape")
-                # Calculate stats on GPU                
-                min_gates_stat = stacked_gate_stats[:, 0].mean()  # Mean of min gate stats
-                max_gate_stat = stacked_gate_stats[:, 1].mean()  # Mean of max gate stats
-                mean_gate_stat = stacked_gate_stats[:, 2].mean()  # Mean of mean gate stats
-                std_gate_stat = stacked_gate_stats[:, 3].mean()  # Mean of std gate stats
-                med_gate_stat = stacked_gate_stats[:, 4].mean() # Mean of small gate stats if available
-                small_gate_stat = stacked_gate_stats[:, 5].mean()  # Mean of small gate stats if available
-                high_gate_stat = stacked_gate_stats[:, 6].mean()  # Mean of high gate stats if available
-                
-                # Record metrics (this will eventually need CPU values, but let PyTorch handle it)
-                trainer.record_metric('train/memory/mean_gate_stat', mean_gate_stat)
-                trainer.record_metric('train/memory/max_gate_stat', max_gate_stat)
-                trainer.record_metric('train/memory/min_gate_stat', min_gates_stat)
-                trainer.record_metric('train/memory/std_gate_stat', std_gate_stat)
-                trainer.record_metric('train/memory/small_gate_stat', small_gate_stat)
-                trainer.record_metric('train/memory/med_gate_stat', med_gate_stat)
-                trainer.record_metric('train/memory/high_gate_stat', high_gate_stat)
-                
-                # For print statement, only move to CPU once if needed
-                # print(f"Gate stats - shape: {stacked_gate_stats.shape}, avg: {avg_gate_stat.item():.4f}, max: {max_gate_stat.item():.4f}")
-        gate_stats_this_step = []
+            stacked_gate_stats = torch.stack(gate_stats_this_step)
+            slf.memory_metrics_accumulator['gate_stats'].append(stacked_gate_stats.detach())
+        
+        # Increment forward count
+        slf.memory_metrics_accumulator['forward_count'] += 1
+        
+        # Check if we've completed a full gradient accumulation cycle
+        # This should match your EFFECTIVE_BATCH_SIZE_COEFFICIENT (8 in your case)
+        if slf.memory_metrics_accumulator['forward_count'] >= EFFECTIVE_BATCH_SIZE_COEFFICIENT:
+            # Time to log the accumulated metrics
+            log_accumulated_memory_metrics(slf, trainer, aux_loss_tracker)
+            
+            # Reset accumulator for next step
+            slf.memory_metrics_accumulator = {
+                'chunk_losses': [],
+                'gate_stats': [],
+                'aux_gates_losses': [],
+                'aux_internal_losses': [],
+                'forward_count': 0
+            }
+        
+        # ... rest of existing code ...
         
         # In the patched model_forward function, add this line after calculating gradients:
         if verbose_memory:
@@ -681,13 +805,11 @@ def train(config: TitanExperimentConfig):
     
     # Always create a trainer with checkpoint loading disabled for full_model
     if config.phase == "full_model":
-        # Use deepcopy instead of .copy() method
         trainer_config = copy.deepcopy(config.trainer)
-        
-        # Create trainer with modified config
         trainer = trainer_config.build(train_module, data_loader)
         
-        trainer.maybe_load_checkpoint(CHECKPOINT)
+        if CHECKPOINT is not None:
+            trainer.load_checkpoint(CHECKPOINT)
         
         # Save config to checkpoint dir
         config_dict = config.as_config_dict()
