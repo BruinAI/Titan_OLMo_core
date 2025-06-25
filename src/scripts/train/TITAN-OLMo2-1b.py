@@ -124,8 +124,8 @@ SEQUENCE_LENGTH = 1024  # Limited to 1024 tokens as specified
 INTRA_DOCUMENT_MASKING = False
 
 # For single GPU, we can use a slightly larger batch size
-BATCH_SIZE = 4  # Increased from 2 for single GPU efficiency
-EFFECTIVE_BATCH_SIZE_COEFFICIENT = 12
+BATCH_SIZE = 3  # Increased from 2 for single GPU efficiency
+EFFECTIVE_BATCH_SIZE_COEFFICIENT = 16
 RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
 GLOBAL_BATCH_SIZE = EFFECTIVE_BATCH_SIZE_COEFFICIENT * BATCH_SIZE * SEQUENCE_LENGTH # Total batch size across all ranks
 
@@ -656,9 +656,9 @@ def train(config: TitanExperimentConfig):
     
     aux_loss_tracker = AuxiliaryLossTracker(
         momentum=0.999, 
-        base_gates_weight=0.005, 
-        base_internal_weight=0.1,
-        update_interval=50,  # Update weights every 50 steps
+        base_gates_weight=0.001, 
+        base_internal_weight=0.02,
+        update_interval=100,  # Update weights every 50 steps
         enable_scaling=True
     )
 
@@ -721,6 +721,23 @@ def train(config: TitanExperimentConfig):
                 loss = attach_auxiliary_loss(loss, internal_weight * total_internal_loss)
                 # Accumulate instead of logging immediately
                 slf.memory_metrics_accumulator['aux_internal_losses'].append(total_internal_loss.detach())
+                
+                
+        # Manual gradient clipping after loss computation
+        # Note: This will only work if gradients have been computed
+        # if hasattr(slf, 'model'):
+        #     # Check if gradients exist (they should after backward pass)
+        #     has_grads = any(p.grad is not None for p in slf.model.parameters() if p.requires_grad)
+        #     if has_grads:
+        #         # Get the max_grad_norm from the train_module config
+        #         max_grad_norm = getattr(slf, 'max_grad_norm', 5.0)
+                
+        #         # Manually call gradient clipping
+        #         grad_norm = slf._clip_grad_norm(max_grad_norm)
+                
+        #         # Log the gradient norm for debugging
+        #         print(f"DEBUG: Manual gradient clipping applied. Grad norm: {grad_norm:.4f}")
+        
         
         # Collect memory chunk losses
         all_chunk_losses_for_step = []

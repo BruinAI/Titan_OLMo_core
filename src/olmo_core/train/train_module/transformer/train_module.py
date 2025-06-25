@@ -450,13 +450,16 @@ class TransformerTrainModule(TrainModule):
     def optim_step(self):
         # Maybe clip gradients.
         if self.max_grad_norm is not None:
-            grad_norm = self._clip_grad_norm(self.max_grad_norm)
+            grad_norm_before, grad_norm_after = self._clip_grad_norm(self.max_grad_norm)
             # NOTE: grad norm is already reduced over ranks, so we set `reduce_type` to `None`.
             self.trainer.record_metric(
-                "total grad norm", grad_norm, reduce_type=None, namespace="optim"
+                "total grad norm before clip", grad_norm_before, reduce_type=None, namespace="optim"
+            )
+            self.trainer.record_metric(
+                "total grad norm after clip", grad_norm_after, reduce_type=None, namespace="optim"
             )
             if isinstance(self.optim, SkipStepOptimizer):
-                self.optim.latest_grad_norm = grad_norm
+                self.optim.latest_grad_norm = grad_norm_before
 
         # Maybe adjust learning rate.
         if self.scheduler is not None:
@@ -534,9 +537,9 @@ class TransformerTrainModule(TrainModule):
 
     def _clip_grad_norm(
         self, max_grad_norm: float, norm_type: float = 2.0, foreach: Optional[bool] = None
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         if isinstance(self.model, FSDP):
-            return self.model.clip_grad_norm_(max_grad_norm)
+            return self.model.clip_grad_norm_(max_grad_norm) #type:ignore
 
         # Adapted from https://github.com/pytorch/torchtitan/blob/2a4437014e66bcf88a3f0419b816266e6326d539/torchtitan/utils.py#L348
 
@@ -559,7 +562,13 @@ class TransformerTrainModule(TrainModule):
             total_norm = total_norm.full_tensor()
 
         torch.nn.utils.clip_grads_with_norm_(parameters, max_grad_norm, total_norm, foreach=foreach)
-        return total_norm
+        
+        grads_after = [p.grad for p in parameters if p.grad is not None]
+
+        total_norm_after = nn.utils.get_total_norm(
+            grads_after, norm_type=norm_type, error_if_nonfinite=False, foreach=foreach
+        )
+        return total_norm, total_norm_after
 
     def _prepare_batch(
         self, batch: Dict[str, Any], labels: Optional[torch.Tensor] = None

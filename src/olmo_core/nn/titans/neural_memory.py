@@ -323,7 +323,7 @@ class ParallelMLPs(nn.Module):
                 for name, grad in zip(current_params.keys(), surp_grads)
             }
 
-            mse = sqerr.sum(dim=-1).mean()
+            mse = sqerr.mean()
             return surprises, mse, new_params
         
     def reset_weights_from_template(self, template_weights: nn.ParameterDict):
@@ -545,8 +545,9 @@ class NeuralMemory(nn.Module):
             keys = keys.transpose(1, 2)
             values = values.transpose(1, 2)
         
-        keys = F.normalize(keys, eps=1e-8)
-        values = F.normalize(values, eps=1e-8)
+        
+        keys = F.normalize(keys, dim=-1, eps=1e-8)
+        values = F.normalize(values, dim=-1, eps=1e-8)
 
         # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
         beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
