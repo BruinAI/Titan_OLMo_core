@@ -1,0 +1,3 @@
+[submodule "evals/LongICLBench"]
+	path = evals/LongICLBench
+	url = https://github.com/TIGER-AI-Lab/LongICLBench

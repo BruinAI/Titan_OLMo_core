@@ -7,6 +7,7 @@ from typing import List
 import regex as re
 from torch.func import vjp, vmap
 
+
 class ParallelMLPs(nn.Module):
     _mlp_index_regex = re.compile(r"\.(\d+)\.")
 
@@ -29,7 +30,7 @@ class ParallelMLPs(nn.Module):
         raise ValueError(f"Parameter name {name} does not match expected format.")
     
     @staticmethod
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def soft_sqrt_clip(g: torch.Tensor, eps=1e-8) -> torch.Tensor:
         if g is None:
             return g
@@ -39,7 +40,7 @@ class ParallelMLPs(nn.Module):
         return g / torch.sqrt(norm + eps)
 
     @staticmethod
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def scaled_root_excess_norm(g: torch.Tensor, alpha=5, eps=1e-8) -> torch.Tensor:
         """
         Soft clipping function such that g is rescale to have a norm of:
@@ -52,7 +53,7 @@ class ParallelMLPs(nn.Module):
         return g * (final_norm / (norm + eps)) if norm > 0 else g
     
     @staticmethod
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def orthonormality_regularization(weight: torch.Tensor, lambda_ortho=0.005) -> torch.Tensor:
         """
         Apply orthonormality regularization to the weight matrix.
@@ -123,7 +124,7 @@ class ParallelMLPs(nn.Module):
         final_output = stacked_outputs + x
         return final_output
     
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def calculate_coeffs(self, beta_vecs, eta_vecs, theta_vecs):
         # ---------------------------------------------------------
         eps = 1e-7
@@ -155,7 +156,7 @@ class ParallelMLPs(nn.Module):
 
         return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
-    # @torch.compile()
+    @torch.compile(dynamic=True)
     def compute_gradients(self, current_params, keys, values, b_coeffs, d_coeffs):
         def f(flat_params):
             return functional_call(self, flat_params, keys)
@@ -169,7 +170,7 @@ class ParallelMLPs(nn.Module):
         surp_grads = [grads_batched[name][1] for name in current_params.keys()]
         return mem_grads, surp_grads, sqerr
     
-    # @torch.compile()
+    @torch.compile(dynamic=True)
     def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=True):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
@@ -487,7 +488,7 @@ class NeuralMemory(nn.Module):
     def retrieve(self, x):
         return self.forward(x)
 
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def forward(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
@@ -508,7 +509,7 @@ class NeuralMemory(nn.Module):
         outputs = self.retrieve_to_gate(outputs)
         return outputs
 
-    # @torch.compile()
+    @torch.compile(dynamic=True)
     def update(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
@@ -612,7 +613,7 @@ class NeuralMemory(nn.Module):
         del reference_mlp
         return template_weights
 
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def train_initial_mlp(self, learnable=True):
         """
         Aggregate parameters from every stored MLP state and update the

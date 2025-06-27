@@ -14,10 +14,24 @@ from dataclasses import dataclass, field
 from typing import List, Optional, cast, Dict, Any
 import copy  # Add this import at the top of the file with other imports
 
+
+import torch._dynamo as td
+td.config.cache_size_limit = 16
+
 DESIRED_GPU_ID = 1
 if "CUDA_VISIBLE_DEVICES" not in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = str(DESIRED_GPU_ID)
     
+# Add test string for inference testing
+TEST_STRING = """In a groundbreaking study on neural memory systems, researchers discovered that contextual associations 
+between concepts can be mathematically represented as dense vector spaces. This finding has significant implications for 
+how we understand both biological and artificial memory formation. The key insight from this work suggests that"""
+
+# Inference parameters
+MAX_NEW_TOKENS = 100
+TEMPERATURE = 0.8
+TOP_P = 0.9
+TOP_K = 40
 
 from tqdm import tqdm
 from pathlib import Path
@@ -106,7 +120,7 @@ log = logging.getLogger(__name__)
 PHASE = "full_model"  # Change from "memory_only" to "full_model"
 
 # Set this if you want to start training from an existing checkpoint
-CHECKPOINT: Optional[str] = None # "/ssd/karen/titan_checkpoints/checkpoint_restart_3500/step85900"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
+CHECKPOINT: Optional[str] = None #"/ssd/karen/titan_checkpoints/restart_low_lr/step17400"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
 
 # Data configuration
 # Path to your manifest file listing .npy data shards
@@ -120,14 +134,6 @@ DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/d
 # FIXME: PLEASE SET THIS TO THE CORRECT PREFIX FOR YOUR DATA:
 BASE_DATA_PREFIX: str = "http://olmo-data.org" # Defaulting to HTTP, adjust if your data is local
 
-SEQUENCE_LENGTH = 1024  # Limited to 1024 tokens as specified
-INTRA_DOCUMENT_MASKING = False
-
-# For single GPU, we can use a slightly larger batch size
-BATCH_SIZE = 3  # Increased from 2 for single GPU efficiency
-EFFECTIVE_BATCH_SIZE_COEFFICIENT = 16
-RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
-GLOBAL_BATCH_SIZE = EFFECTIVE_BATCH_SIZE_COEFFICIENT * BATCH_SIZE * SEQUENCE_LENGTH # Total batch size across all ranks
 
 # Memory configuration
 MEMORY_LAYERS = [3,7,11,15]  # Every 4th layer
@@ -142,6 +148,16 @@ HIDDEN_DIM_MULTIPLE = 2  # Multiple for memory hidden dimension
 WANDB_PROJECT = "Titan_OLMo"  # Your WandB project name
 WANDB_ENTITY = "k_moss"  # Your WandB username or organization
 WANDB_RUN_NAME = None  # Set to None to use the run_name parameter
+
+CHUNK_NUMBER = 12
+SEQUENCE_LENGTH = CHUNK_NUMBER*CHUNK_SIZE  # Limited to 1024 tokens as specified
+INTRA_DOCUMENT_MASKING = False
+
+# For single GPU, we can use a slightly larger batch size
+BATCH_SIZE = 1  # Increased from 2 for single GPU efficiency
+EFFECTIVE_BATCH_SIZE_COEFFICIENT = 1
+RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
+GLOBAL_BATCH_SIZE = EFFECTIVE_BATCH_SIZE_COEFFICIENT * BATCH_SIZE * SEQUENCE_LENGTH # Total batch size across all ranks
 
 TOKENIZER_CONFIG = TokenizerConfig.dolma2()
 
@@ -161,7 +177,7 @@ memory_config = MemoryConfig(
 # Training configuration
 MEMORY_ONLY_STEPS = 2000  # Number of steps for memory-only training
 LEARNING_RATE = 5e-5
-FULL_MODEL_LEARNING_RATE = 2e-4
+FULL_MODEL_LEARNING_RATE = 1e-4
 
 # Local save path - create checkpoints directory if it doesn't exist
 SAVE_DIR = os.path.expanduser("~/titan_checkpoints")
@@ -199,14 +215,12 @@ class AuxiliaryLossTracker:
         # Always update running averages (for monitoring) - only if scaling is enabled
         if self.running_avg_main is None:
             self.running_avg_main = main_loss.detach()
-            self.running_avg_gates = gates_loss.detach() if gates_loss > 0 else torch.tensor(1e-6)
-            self.running_avg_internal = internal_loss.detach() if internal_loss > 0 else torch.tensor(1e-6)
+            self.running_avg_gates = gates_loss.detach()
+            self.running_avg_internal = internal_loss.detach()
         else:
             self.running_avg_main = self.momentum * self.running_avg_main + (1 - self.momentum) * main_loss.detach()
-            if gates_loss > 0:
-                self.running_avg_gates = self.momentum * self.running_avg_gates + (1 - self.momentum) * gates_loss.detach()
-            if internal_loss > 0:
-                self.running_avg_internal = self.momentum * self.running_avg_internal + (1 - self.momentum) * internal_loss.detach()
+            self.running_avg_gates = self.momentum * self.running_avg_gates + (1 - self.momentum) * gates_loss.detach()
+            self.running_avg_internal = self.momentum * self.running_avg_internal + (1 - self.momentum) * internal_loss.detach()
         
         # Only recalculate weights every update_interval steps
         if (self.step_count % self.update_interval) == 0:
@@ -675,6 +689,7 @@ def train(config: TitanExperimentConfig):
         torch.cuda.empty_cache()
         
         # Call the original model_forward method correctly
+        # torch.compiler.cudagraph_mark_step_begin()
         outputs = original_tm_model_forward(input_ids, labels=labels, **kwargs)
         logits, loss, ce_loss, z_loss = outputs
         
@@ -711,16 +726,13 @@ def train(config: TitanExperimentConfig):
             gates_weight, internal_weight = aux_loss_tracker.update_and_get_weights(
                 loss, total_gates_squared_loss, total_internal_loss
             )
-            
-            if total_gates_squared_loss > 0:
-                loss = attach_auxiliary_loss(loss, gates_weight * total_gates_squared_loss)
-                # Accumulate instead of logging immediately
-                slf.memory_metrics_accumulator['aux_gates_losses'].append(total_gates_squared_loss.detach())
-            
-            if total_internal_loss > 0:
-                loss = attach_auxiliary_loss(loss, internal_weight * total_internal_loss)
-                # Accumulate instead of logging immediately
-                slf.memory_metrics_accumulator['aux_internal_losses'].append(total_internal_loss.detach())
+            loss = attach_auxiliary_loss(loss, gates_weight * total_gates_squared_loss)
+            # Accumulate instead of logging immediately
+            slf.memory_metrics_accumulator['aux_gates_losses'].append(total_gates_squared_loss.detach())
+        
+            loss = attach_auxiliary_loss(loss, internal_weight * total_internal_loss)
+            # Accumulate instead of logging immediately
+            slf.memory_metrics_accumulator['aux_internal_losses'].append(total_internal_loss.detach())
                 
                 
         # Manual gradient clipping after loss computation
@@ -812,8 +824,11 @@ def train(config: TitanExperimentConfig):
     original_train_batch = train_module.train_batch
     
     def train_batch_with_autocast(batch, *args, **kwargs):
+        #torch.compiler.cudagraph_mark_step_begin()
         with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
-            return original_train_batch(batch, *args, **kwargs)
+            result = original_train_batch(batch, *args, **kwargs)
+        #torch.cuda.synchronize()
+        return result
     
     train_module.train_batch = train_batch_with_autocast
     
@@ -872,6 +887,162 @@ def train(config: TitanExperimentConfig):
         log.info(f"Starting full-model training phase with fresh optimizer state")
         trainer.fit()
         
+# Custom generate function
+def simple_generate(model, input_ids, max_new_tokens=20, eos_token_id=None, pad_token_id=None):
+    """
+    Simple autoregressive generation using argmax token selection.
+    
+    Args:
+        model: The transformer model
+        input_ids: Initial token ids to start generation from
+        max_new_tokens: Maximum number of new tokens to generate
+        eos_token_id: End of sequence token ID (optional)
+        pad_token_id: Padding token ID (optional)
+    
+    Returns:
+        torch.Tensor: The generated token IDs including the input
+    """
+    # Make sure model is in evaluation mode
+    model.eval()
+    
+    # Keep track of original input shape and device
+    device = input_ids.device
+    batch_size = input_ids.shape[0]
+    
+    # Current sequence of tokens (will be extended during generation)
+    curr_ids = input_ids
+    
+    # Reset memory MLPs for clean generation
+    for module in model.modules():
+        if hasattr(module, 'memory') and module.memory is not None:
+            module.memory.reset_mlps()
+    
+    # Generate max_new_tokens, one token at a time
+    with torch.no_grad():
+        for _ in tqdm(range(max_new_tokens), desc="Generating"):
+            # Forward pass through the model to get next token logits
+            outputs = model(curr_ids)
+            
+            # Get logits for the next token (last position in sequence)
+            next_token_logits = outputs[:, -1, :]
+            
+            # Simple argmax selection (no sampling)
+            next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+            
+            # Append the new token to our current sequence
+            curr_ids = torch.cat([curr_ids, next_token], dim=1)
+            
+            # Stop if EOS token is generated in any sequence
+            if eos_token_id is not None and (next_token == eos_token_id).any():
+                # Find which sequences generated EOS
+                eos_indices = (next_token == eos_token_id).nonzero()
+                
+                # Only stop if all sequences generated EOS
+                if len(eos_indices) == batch_size:
+                    break
+    
+    return curr_ids
+
+def test_inference(config):
+    """Run inference using a saved model checkpoint to continue the TEST_STRING."""
+    # Set RNG states on all devices
+    seed_all(config.init_seed)
+    
+    # Enable higher precision matrix multiplication
+    torch.set_float32_matmul_precision('high')
+    
+    # Explicitly check which device we're using
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    log.info(f"Using device: {device} (CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')})")
+    
+    # Diagnostic output to confirm which GPU is being used
+    if torch.cuda.is_available():
+        current_device = torch.cuda.current_device()
+        device_name = torch.cuda.get_device_name(current_device)
+        device_props = torch.cuda.get_device_properties(current_device)
+        log.info(f"Using CUDA device {current_device}: {device_name}")
+        log.info(f"Device capability: {device_props.major}.{device_props.minor}")
+        log.info(f"Total memory: {device_props.total_memory / 1e9:.2f} GB")
+    
+    # Build components - use "cuda:0" here as this will map to your selected GPU
+    model = config.model.build(init_device=device)
+    model = model.to(device)
+    
+    # Configure which parameters to train based on phase
+    only_train_memory = (config.phase == "memory_only")
+    trainable_params = configure_training_parameters(model, only_train_memory=only_train_memory)
+    log.info(f"Training mode: {config.phase} ({trainable_params:,} trainable parameters)")
+    
+    # Build training components
+    train_module = config.train_module.build(model)   
+    
+    
+    dataset = config.dataset.build()
+    data_loader = config.data_loader.build(dataset, dp_process_group=train_module.dp_process_group)
+
+    trainer_config = copy.deepcopy(config.trainer)
+    trainer = trainer_config.build(train_module, data_loader)
+    
+    if CHECKPOINT is not None:
+        trainer.load_checkpoint(CHECKPOINT)
+    
+    # Save config to checkpoint dir
+    config_dict = config.as_config_dict()
+    cast(ConfigSaverCallback, trainer.callbacks["config_saver"]).config = config_dict
+    
+    
+    
+    # 8. Set model to eval mode after loading
+    model = train_module.model
+    model.eval()
+    
+    # 9. Add generate function to the model
+    model.generate = types.MethodType(simple_generate, model)
+    
+    # 10. Load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
+    
+    # 11. Tokenize input text
+    log.info(f"Input text: {TEST_STRING[:100]}...")
+    input_ids = tokenizer.encode(TEST_STRING, return_tensors="pt").to(model.device)
+    
+    # 12. Generate output
+    log.info(f"Generating text with {MAX_NEW_TOKENS} tokens...")
+    
+    with torch.no_grad():
+        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+            # Reset memory MLPs before generation
+            for module in model.modules():
+                if hasattr(module, 'memory') and module.memory is not None:
+                    module.memory.reset_mlps()
+                    
+            output_ids = model.generate(
+                input_ids,
+                max_new_tokens=MAX_NEW_TOKENS,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+            )
+    
+    # 13. Decode output
+    generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    
+    # 14. Print results
+    log.info("=" * 80)
+    log.info("GENERATED TEXT:")
+    log.info("=" * 80)
+    log.info(generated_text)
+    log.info("=" * 80)
+    
+    # 15. Highlight the newly generated portion
+    original_length = len(TEST_STRING)
+    continuation = generated_text[original_length:]
+    
+    log.info("CONTINUATION ONLY:")
+    log.info("=" * 80)
+    log.info(continuation)
+    log.info("=" * 80)
+    
+    return generated_text
 
 if __name__ == "__main__":
     usage = f"""
@@ -879,6 +1050,7 @@ Usage
 =====
 
 › python {sys.argv[0]} train RUN_NAME [OVERRIDES...]
+› python {sys.argv[0]} test CHECKPOINT_PATH
 
 Examples
 ========
@@ -888,20 +1060,18 @@ Train the memory-only phase:
 
 Train the full-model phase with checkpoint:
 › python {sys.argv[0]} train titan_run02 --phase=full_model --checkpoint=/path/to/memory_only_checkpoint
+
+Test a model by generating text:
+› python {sys.argv[0]} test /path/to/checkpoint/step1000
     """.strip()
 
     if len(sys.argv) < 3:
         print(usage)
         sys.exit(1)
 
-    cmd, run_name, *overrides = sys.argv[1:]
-
-    if cmd != "train":
-        print(usage)
-        sys.exit(1)
-
-    # GPU selection using CUDA_VISIBLE_DEVICES
-    # This should be done before any torch.cuda calls or prepare_training_environment
+    cmd = sys.argv[1]
+    
+    # Set GPU selection using CUDA_VISIBLE_DEVICES before any CUDA calls
     if torch.cuda.is_available():
         num_gpus = torch.cuda.device_count()
         if DESIRED_GPU_ID < num_gpus:
@@ -917,28 +1087,46 @@ Train the full-model phase with checkpoint:
             )
             if num_gpus > 0:
                 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-            # If no GPUs, PyTorch will fall back to CPU.
     else:
-        log.info("CUDA not available. Training will use CPU.")
-
-    # For single GPU, use this environment variable to disable distributed setup
+        log.info("CUDA not available. Using CPU.")
+        
+    # For single GPU, use these environment variables to set up distributed environment
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
     os.environ["WORLD_SIZE"] = "1"
     os.environ["LOCAL_RANK"] = "0"
     os.environ["RANK"] = "0"
-    os.environ["MASTER_ADDR"] = "localhost"  # Add this line
+    os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355" 
-    os.environ["NUM_NODES"] = "1"       # Add this line
-    os.environ["LOCAL_WORLD_SIZE"] = "1" # Add this line
+    os.environ["NUM_NODES"] = "1"
+    os.environ["LOCAL_WORLD_SIZE"] = "1"
     os.environ["PYTORCH_FIND_UNUSED_PARAMETERS"] = "True"
-    
-    # Prepare training environment for single GPU
-    prepare_training_environment()
+        
 
-    config = build_config(run_name, overrides)
-    log.info(config)
+    if cmd == "train":
+        run_name, *overrides = sys.argv[2:]
+        # Prepare training environment for single GPU
+        prepare_training_environment()
 
-    try:
-        train(config)
-    finally:
-        teardown_training_environment()
+        config = build_config(run_name, overrides)
+        log.info(config)
+
+        try:
+            train(config)
+        finally:
+            teardown_training_environment()
+            
+    elif cmd == "test":
+        run_name, *overrides = sys.argv[2:]
+        # Prepare training environment for single GPU
+        prepare_training_environment()
+        
+        # Test inference doesn't need distributed setup
+        config = build_config(run_name, overrides)
+        try:
+            test_inference(config)
+        finally:
+            teardown_training_environment()
+        
+    else:
+        print(usage)
+        sys.exit(1)
