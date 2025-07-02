@@ -6,6 +6,7 @@ import torch.utils.checkpoint as cp
 from typing import List
 import regex as re
 from torch.func import vjp, vmap
+import torch.utils.checkpoint
 
 
 class ParallelMLPs(nn.Module):
@@ -358,7 +359,7 @@ class NeuralMemory(nn.Module):
                  nu = 0.01, l2_memory_weight = 0.00,
                  alpha_scale=0.015, eta_scale=0.1, theta_scale=3e-4,
                  use_global_sw = False, num_global_tokens = 0,
-                 use_conv=False, retrieve_layer=False,
+                 use_conv=True, retrieve_layer=True,
                  audit_grad=False):
         super().__init__()
 
@@ -392,6 +393,8 @@ class NeuralMemory(nn.Module):
         if self.retrieve_layer:
             torch.nn.init.normal_(self.retrieve_to_gate.weight, mean=0.0, std=0.02)
 
+        self.gate_norm = nn.LayerNorm(emb_dim, eps=1e-8, elementwise_affine=False)  # Layer normalization for gate
+        
         self.alpha = nn.Linear(emb_dim, 1, bias=True)
         self.eta = nn.Linear(emb_dim, 1, bias=True)
         self.theta = nn.Linear(emb_dim, 1, bias=True)
@@ -493,20 +496,29 @@ class NeuralMemory(nn.Module):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
 
-        queries = self.silu(self.Q(x))
-        if self.use_conv:
-            # Apply 1D depthwise-separable convolution
-            # Input to Conv1d: (B, N, L), current shape: (B, L, N)
-            queries = queries.transpose(1, 2)  # B, N, L -> B, L, N
-            queries = self.conv_q(queries)
-            queries = queries.transpose(1, 2)  # B, L, N -> B, N, L
-        queries = F.normalize(queries, eps=1e-8) # Normalize after convolution
+        def get_queries(x):
+            queries = self.silu(self.Q(x))
+            if self.use_conv:
+                # Apply 1D depthwise-separable convolution
+                # Input to Conv1d: (B, N, L), current shape: (B, L, N)
+                queries = queries.transpose(1, 2)  # B, N, L -> B, L, N
+                queries = self.conv_q(queries)
+                queries = queries.transpose(1, 2)  # B, L, N -> B, N, L
+            queries = F.normalize(queries, dim=-1, eps=1e-8) # Normalize after convolution
+            return queries
+
+        queries = torch.utils.checkpoint.checkpoint(get_queries, x, use_reentrant=False)  # Use checkpointing to save memory
 
         outputs = functional_call(self.mlps_processor, self.mlp_states[-1], queries)
         if not self.retrieve_layer:
             return outputs
         # transform retrieved memory to sigmoid gate inputs (not needed, but more intuitive imo)
-        outputs = self.retrieve_to_gate(outputs)
+        def get_gates(outputs):
+            return self.gate_norm(self.retrieve_to_gate(outputs))        
+        
+        
+        outputs = torch.utils.checkpoint.checkpoint(get_gates, outputs, use_reentrant=False)  # Use checkpointing to save memory
+        
         return outputs
 
     @torch.compile(dynamic=True)
@@ -516,48 +528,65 @@ class NeuralMemory(nn.Module):
         
         self.mlp_reset = False
         z = x.detach()
-           
-        # NOT SURE IF THIS SHOULD GO BEFORE OR AFTER THE DETATCH
         
-        if self.use_global_sw and self.num_global_tokens > 0:
-            # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
-            repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)
+        # Define preprocessing function that can be checkpointed
+        def preprocess_inputs(z):
+            if self.use_global_sw and self.num_global_tokens > 0:
+                # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
+                repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)
+                
+                # Expand to match batch size
+                repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)
+                
+                # Concatenate with input along sequence dimension
+                z = torch.cat([repeated_persistent_tokens, z], dim=1)
+            return z
+        
+        # Use checkpointing for preprocessing
+        z = torch.utils.checkpoint.checkpoint(preprocess_inputs, z, use_reentrant=False)
+        
+        # Define key-value computation function that can be checkpointed
+        def compute_keys_values(z):
+            # Evaluate the corresponding keys and values
+            keys = self.silu(self.K(z))
+            values = self.silu(self.V(z))
             
-            # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
-            repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)
+            if self.use_conv:
+                # Apply 1D depthwise-separable convolution to keys
+                keys = keys.transpose(1, 2)
+                values = values.transpose(1, 2)
+                
+                keys = self.conv_k(keys)
+                values = self.conv_v(values)
+                
+                keys = keys.transpose(1, 2)
+                values = values.transpose(1, 2)
             
-            # Concatenate with input along sequence dimension
-            z = torch.cat([repeated_persistent_tokens, z], dim=1)
-
-        # Evaluate the corresponding keys and values
-        keys = self.silu(self.K(z))
-        values = self.silu(self.V(z))
-
-        if self.use_conv:
-            # Apply 1D depthwise-separable convolution to keys
-            # B, N, L -> B, L, N
-            keys = keys.transpose(1, 2)
-            values = values.transpose(1, 2)
-
-            keys = self.conv_k(keys)
-            values = self.conv_v(values)
-
-            # B, L, N -> B, N, L
-            keys = keys.transpose(1, 2)
-            values = values.transpose(1, 2)
+            keys = F.normalize(keys, dim=-1, eps=1e-8)
+            values = F.normalize(values, dim=-1, eps=1e-8)
+            return keys, values
         
+        # Use checkpointing for key-value computation
+        keys, values = torch.utils.checkpoint.checkpoint(compute_keys_values, z, use_reentrant=False)
         
-        keys = F.normalize(keys, dim=-1, eps=1e-8)
-        values = F.normalize(values, dim=-1, eps=1e-8)
-
-        # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
-        beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
-        eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
-        theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)
-
-        self.surprise, losses, next_mlp_params = self.mlps_processor.update_memory(  # type: ignore
-            self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec, audit_grad = self.audit_grad
+        # Define coefficient computation that can be checkpointed
+        def compute_coefficients(keys):
+            beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)
+            eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)
+            theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)
+            return beta_vec, eta_vec, theta_vec
+        
+        # Use checkpointing for coefficient computation
+        beta_vec, eta_vec, theta_vec = torch.utils.checkpoint.checkpoint(
+            compute_coefficients, keys, use_reentrant=False
         )
+        
+        # DON'T checkpoint this part - it uses functorch operations
+        self.surprise, losses, next_mlp_params = self.mlps_processor.update_memory(
+            self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec, 
+            audit_grad=self.audit_grad
+        )
+        
         if self.training:
             self.mlp_states.append(next_mlp_params)
         return losses

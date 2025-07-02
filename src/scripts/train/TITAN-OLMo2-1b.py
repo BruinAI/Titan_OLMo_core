@@ -13,10 +13,12 @@ import sys
 from dataclasses import dataclass, field
 from typing import List, Optional, cast, Dict, Any
 import copy  # Add this import at the top of the file with other imports
-
+import torch
+import torch.utils.checkpoint as ckpt
 
 import torch._dynamo as td
-td.config.cache_size_limit = 16
+td.config.cache_size_limit = 32
+#torch._functorch.config.activation_memory_budget = 0.5
 
 DESIRED_GPU_ID = 1
 if "CUDA_VISIBLE_DEVICES" not in os.environ:
@@ -36,7 +38,7 @@ TOP_K = 40
 from tqdm import tqdm
 from pathlib import Path
 import wandb
-from olmo_core.nn.transformer.block import MAGReorderedNormTransformerBlock
+from olmo_core.nn.transformer.block import MAGReorderedNormTransformerBlock, TransformerBlock
 from olmo_core.train.callbacks import Callback # Ensure Callback is imported
 from olmo_core.train.trainer import Trainer # For type hinting
 from olmo_core.train.train_module import TrainModule # For type hinting
@@ -58,7 +60,7 @@ if sys.platform == "darwin":  # if macOS
     os.environ["LDFLAGS"] = "-L/opt/homebrew/opt/llvm/lib"
     os.environ["CPPFLAGS"] = "-I/opt/homebrew/opt/llvm/include"
 
-import torch
+
 from torch.profiler import profile, ProfilerActivity
 from transformers import AutoTokenizer
 import bitsandbytes as bnb
@@ -120,27 +122,51 @@ log = logging.getLogger(__name__)
 PHASE = "full_model"  # Change from "memory_only" to "full_model"
 
 # Set this if you want to start training from an existing checkpoint
-CHECKPOINT: Optional[str] = None #"/ssd/karen/titan_checkpoints/restart_low_lr/step17400"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
+CHECKPOINT: Optional[str] = "/ssd/karen/titan_checkpoints/layernorm_gate/step1001"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
 
 # Data configuration
 # Path to your manifest file listing .npy data shards
-DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/dolmino6b_sample.txt"
 
-# Base prefix for the data shards listed in the manifest.
-# If your .npy files are hosted, this would be the base HTTP/S3 URL.
-# Example: BASE_DATA_PREFIX = "http://olmo-data.org"
-# If they are local, this would be the root directory where the 'preprocessed/...' structure exists.
-# Example: BASE_DATA_PREFIX = "/ssd/karen/olmo_data" # Ensure this path exists if local
-# FIXME: PLEASE SET THIS TO THE CORRECT PREFIX FOR YOUR DATA:
-BASE_DATA_PREFIX: str = "http://olmo-data.org" # Defaulting to HTTP, adjust if your data is local
+TRAIN_PHASE = 3  # For example, 0 corresponds to the first entry in the schedule
+
+SCHEDULE = [
+    {"until_step": 120, "seq_len": 512, "min_doc_len": 256, "batch_size": 8, "sw_size": 64,
+     'global_batch_size': 16, 'data_source': 'dolma2', 'load_trainer': True},  
+    
+    {"until_step": 500, "seq_len": 1024, "min_doc_len": 512, "batch_size": 4, "sw_size": 128,
+     'global_batch_size': 16, 'data_source': 'dolma2', 'load_trainer': True},
+    
+    {"until_step": 1000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 2, "sw_size": 512, 
+     'global_batch_size': 24, 'data_source': 'dolma2', 'load_trainer': True},
+    
+    {"until_step": 3200, "seq_len": 4096, "min_doc_len": 2048, "batch_size": 2, "sw_size": 512, 
+     'global_batch_size': 32, 'data_source': 'fineweb', 'load_trainer': False},
+    
+    {"until_step": 5200, "seq_len": 8192, "min_doc_len": 4096, "batch_size": 1, "sw_size": 512, 
+     'global_batch_size': 32, 'data_source': 'fineweb', 'load_trainer': True},
+]
+
+# Get the active configuration based on the training phase
+active_config = SCHEDULE[TRAIN_PHASE]
+
+
+if active_config["data_source"] == "dolma2":
+    DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/dolmino50_long.txt"
+    BASE_DATA_PREFIX: str = "http://olmo-data.org" # Defaulting to HTTP, adjust if your data is local
+    
+elif active_config["data_source"] == "fineweb":
+    DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/fineweb_1b.txt"
+    BASE_DATA_PREFIX: str = "/ssd/karen/finewebedu_tokenized"  # Local path to FineWeb data shards
+else:
+    raise ValueError(f"Unknown data source: {active_config['data_source']}")
 
 
 # Memory configuration
 MEMORY_LAYERS = [3,7,11,15]  # Every 4th layer
 USE_SLIDING_WINDOW = True
-WINDOW_SIZE = 512
-PERSISTENT_MEM_LEN = 4  # Number of persistent memory tokens
-CHUNK_SIZE = 256  # Size of chunks for memory processing
+WINDOW_SIZE = active_config["sw_size"]  # Sliding window size from the active config
+PERSISTENT_MEM_LEN = 16  # Number of persistent memory tokens
+CHUNK_SIZE = 512  # Size of chunks for memory processing
 N_LAYERS = 2  # Number of layers in memory component
 HIDDEN_DIM_MULTIPLE = 2  # Multiple for memory hidden dimension
 
@@ -149,13 +175,14 @@ WANDB_PROJECT = "Titan_OLMo"  # Your WandB project name
 WANDB_ENTITY = "k_moss"  # Your WandB username or organization
 WANDB_RUN_NAME = None  # Set to None to use the run_name parameter
 
-CHUNK_NUMBER = 12
-SEQUENCE_LENGTH = CHUNK_NUMBER*CHUNK_SIZE  # Limited to 1024 tokens as specified
+#CHUNK_NUMBER = 8
+SEQUENCE_LENGTH = active_config["seq_len"]
+MIN_DOC_LENGTH = active_config["min_doc_len"]
 INTRA_DOCUMENT_MASKING = False
 
 # For single GPU, we can use a slightly larger batch size
-BATCH_SIZE = 1  # Increased from 2 for single GPU efficiency
-EFFECTIVE_BATCH_SIZE_COEFFICIENT = 1
+BATCH_SIZE = active_config["batch_size"]
+EFFECTIVE_BATCH_SIZE_COEFFICIENT = active_config["global_batch_size"] // BATCH_SIZE  # Coefficient to adjust effective batch size for single GPU
 RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
 GLOBAL_BATCH_SIZE = EFFECTIVE_BATCH_SIZE_COEFFICIENT * BATCH_SIZE * SEQUENCE_LENGTH # Total batch size across all ranks
 
@@ -379,6 +406,7 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
         # Using a sub-directory in SAVE_DIR is a good practice.
         work_dir=str(Path(SAVE_DIR) / "dataset_cache"), # Ensure work_dir is a string
         generate_doc_lengths=INTRA_DOCUMENT_MASKING,
+        min_sequence_length=MIN_DOC_LENGTH, # Ensure MIN_SEQUENCE_LENGTH is defined
     )
 
     data_loader_config = NumpyDataLoaderConfig(
@@ -657,6 +685,26 @@ def train(config: TitanExperimentConfig):
     model = config.model.build(init_device=device)
     model = model.to(device)
     
+    def _wrap_block_for_ckpt(block):
+        # Skip memory-enabled blocks to avoid functorch conflicts
+        if hasattr(block, 'memory') and block.memory is not None:
+            print(f"Skipping checkpoint wrapping for memory block: {block.__class__.__name__}")
+            return
+            
+        def _fn(x, *args, **kwargs):
+            return block._orig_forward(x, *args, **kwargs)
+        block._orig_forward = block.forward     # save original
+        block.forward = lambda x, *a, **kw: ckpt.checkpoint(
+            _fn, x, *a, use_reentrant=False, **kw
+        )
+
+    # Walk over every Transformer block (plain only) and wrap it
+    for mod in model.modules():
+        if isinstance(mod, (
+            TransformerBlock
+        )):
+            _wrap_block_for_ckpt(mod)
+    
     # Configure which parameters to train based on phase
     only_train_memory = (config.phase == "memory_only")
     trainable_params = configure_training_parameters(model, only_train_memory=only_train_memory)
@@ -670,9 +718,9 @@ def train(config: TitanExperimentConfig):
     
     aux_loss_tracker = AuxiliaryLossTracker(
         momentum=0.999, 
-        base_gates_weight=0.001, 
-        base_internal_weight=0.02,
-        update_interval=100,  # Update weights every 50 steps
+        base_gates_weight=0.0, 
+        base_internal_weight=0.1,
+        update_interval= 32 * 5,  # Update weights every 5 macro steps
         enable_scaling=True
     )
 
@@ -841,7 +889,7 @@ def train(config: TitanExperimentConfig):
         trainer = trainer_config.build(train_module, data_loader)
         
         if CHECKPOINT is not None:
-            trainer.load_checkpoint(CHECKPOINT)
+            trainer.load_checkpoint(CHECKPOINT, load_trainer_state=active_config['load_trainer'])
         
         # Save config to checkpoint dir
         config_dict = config.as_config_dict()
@@ -856,8 +904,8 @@ def train(config: TitanExperimentConfig):
         
         # Regular checkpoint loading for memory_only phase
         if CHECKPOINT is not None:
-            if not trainer.maybe_load_checkpoint(trainer.save_folder):
-                trainer.load_checkpoint(CHECKPOINT)
+            if not trainer.maybe_load_checkpoint(trainer.save_folder, load_trainer_state=active_config['load_trainer']):
+                trainer.load_checkpoint(CHECKPOINT, load_trainer_state=active_config['load_trainer'])
     
     # Train for the specified number of steps
     if config.phase == "memory_only":
@@ -984,7 +1032,7 @@ def test_inference(config):
     trainer = trainer_config.build(train_module, data_loader)
     
     if CHECKPOINT is not None:
-        trainer.load_checkpoint(CHECKPOINT)
+        trainer.load_checkpoint(CHECKPOINT, load_trainer_state=active_config['load_trainer'])
     
     # Save config to checkpoint dir
     config_dict = config.as_config_dict()
