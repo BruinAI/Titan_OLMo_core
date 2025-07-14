@@ -1,0 +1,373 @@
+INFO:__main__:Building model...
+INFO:__main__:Using sliding window attention with window size: 512
+INFO:olmo_core.nn.transformer.config:Building transformer with 1,619,150,848 total params, 1,413,629,952 non-embedding params
+INFO:olmo_core.nn.transformer.config:Transformer(
+  (embeddings): Embedding(100352, 2048)
+  (blocks): ModuleDict(
+    (0): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (1): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (2): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (3): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (4): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (5): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (6): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (7): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (8): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (9): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (10): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (11): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (12): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (13): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (14): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (15): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (16): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+    (17): ReorderedNormTransformerBlock(
+      (attention): Attention(
+        (w_q): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_k): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_v): Linear(in_features=2048, out_features=2048, bias=False)
+        (w_out): Linear(in_features=2048, out_features=2048, bias=False)
+        (q_norm): RMSNorm((2048,), eps=1e-06)
+        (k_norm): RMSNorm((2048,), eps=1e-06)
+        (rope): RotaryEmbedding()
+      )
+      (attention_norm): RMSNorm((2048,), eps=1e-06)
+      (feed_forward): FeedForward(
+        (w1): Linear(in_features=2048, out_features=8192, bias=False)
+        (w2): Linear(in_features=8192, out_features=2048, bias=False)
+        (w3): Linear(in_features=2048, out_features=8192, bias=False)
+      )
+      (feed_forward_norm): RMSNorm((2048,), eps=1e-06)
+      (dropout): Identity()
+    )
+  )
+  (lm_head): LMHead(
+    (norm): RMSNorm((2048,), eps=1e-06)
+    (w_out): Linear(in_features=2048, out_features=100352, bias=False)
+  )
+)
+INFO:olmo_core.nn.transformer.config:Built model with:
+- 1,619,150,848 total params
+- 1,413,629,952 non-embedding params
+- 1,619,150,848 trainable params
+/ssd/karen/miniconda3/envs/TOLMo/lib/python3.11/site-packages/torch/distributed/checkpoint/state_dict_loader.py:153: UserWarning: torch.distributed is disabled, unavailable or uninitialized, assuming the intent is to load in a single process.
+  warnings.warn(
+INFO:__main__:Built baseline model with 1,619,150,848 parameters
+INFO:__main__:Building dataloader...
+INFO:__main__:Loaded 1 data paths from manifest
+INFO:olmo_core.data.numpy_dataset:Assuming dtype 'uint32' based on vocab size
+INFO:__main__:Built dataloader with batch size 4
+INFO:__main__:Starting evaluation...
+INFO:olmo_core.data.data_loader:Saving global data order indices for seed 34521 and epoch 1 to:
+'/ssd/karen/dataset_cache/global_indices_dataset_size97658_epoch1_seed34521_v1.npy'...
+INFO:olmo_core.data.data_loader:Global data order indices saved to:
+'/ssd/karen/dataset_cache/global_indices_dataset_size97658_epoch1_seed34521_v1.npy'
+INFO:__main__:Starting evaluation for 5000 steps...
+Evaluating: 100%|█████████████████████████████████████████████████████████████████████| 5000/5000 [17:30<00:00,  4.76it/s, loss=2.6504, ppl=14.16]
+INFO:__main__:Evaluation completed successfully!

@@ -3,7 +3,7 @@
 # Configuration
 PROJECT_DIR="/ssd/karen/Titan_OLMo_core"
 SCRIPT_PATH="src/scripts/train/TITAN-OLMo2-1b.py"
-RUN_NAME="restart_low_lr"  # Change this to your desired run name
+RUN_NAME="cleaned_train"  # Change this to your desired run name
 MAX_RESTARTS=15  # Maximum number of restarts before giving up
 RESTART_DELAY=30  # Seconds to wait before restarting
 LOG_DIR="$HOME/titan_training_logs"

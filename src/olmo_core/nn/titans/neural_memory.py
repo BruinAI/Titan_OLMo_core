@@ -359,7 +359,7 @@ class NeuralMemory(nn.Module):
                  nu = 0.01, l2_memory_weight = 0.00,
                  alpha_scale=0.015, eta_scale=0.1, theta_scale=3e-4,
                  use_global_sw = False, num_global_tokens = 0,
-                 use_conv=True, retrieve_layer=True,
+                 use_conv=False, retrieve_layer=True,
                  audit_grad=False):
         super().__init__()
 

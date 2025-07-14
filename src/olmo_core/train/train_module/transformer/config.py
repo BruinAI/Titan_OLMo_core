@@ -256,6 +256,7 @@ class TransformerTrainModuleConfig(Config):
 
     optim: OptimConfig
     max_grad_norm: Optional[float] = None
+    max_grad_clip: Optional[float] = None
     scheduler: Optional[Scheduler] = None
 
     # Model settings.

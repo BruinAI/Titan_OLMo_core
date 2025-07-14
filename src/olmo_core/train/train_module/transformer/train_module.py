@@ -114,6 +114,7 @@ class TransformerTrainModule(TrainModule):
         state_dict_load_opts: Optional[dist_cp_sd.StateDictOptions] = None,
         load_key_mapping: Optional[Dict[str, str]] = None,
         label_ignore_index: int = -100,
+        max_grad_clip: Optional[float] = None,
     ):
         super().__init__()
 
@@ -168,6 +169,7 @@ class TransformerTrainModule(TrainModule):
         self.max_sequence_length = max_sequence_length
         self.autocast_precision = autocast_precision
         self.max_grad_norm = max_grad_norm
+        self.max_grad_clip = max_grad_clip
         self.scheduler = scheduler
         self.state_dict_save_opts = state_dict_save_opts or dist_cp_sd.StateDictOptions(
             flatten_optimizer_state_dict=True, cpu_offload=True
@@ -180,6 +182,20 @@ class TransformerTrainModule(TrainModule):
         # Build optimizer(s).
         log.info("Building optimizer...")
         self.optim: Optimizer = optim.build(self.model, strict=True)
+
+        self._persistent_unstable_params = {
+            "by_norm": {},      # name -> (count, max_value)
+            "by_extreme": {}    # name -> (count, max_value)
+        }
+        self._unstable_tracking_counter = 0
+
+        self._persistent_unstable_params = {
+            "by_norm": {},      # name -> (count, max_value)
+            "by_extreme": {}    # name -> (count, max_value)
+        }
+        self._unstable_tracking_counter = 0
+        
+        self.unstable_flag = False
 
     @property
     def dp_process_group(self) -> Optional[dist.ProcessGroup]:
@@ -449,6 +465,7 @@ class TransformerTrainModule(TrainModule):
 
     def optim_step(self):
         # Maybe clip gradients.
+        self.unstable_flag = False
         if self.max_grad_norm is not None:
             grad_norm_before, grad_norm_after = self._clip_grad_norm(self.max_grad_norm)
             # NOTE: grad norm is already reduced over ranks, so we set `reduce_type` to `None`.
@@ -460,17 +477,69 @@ class TransformerTrainModule(TrainModule):
             )
             if isinstance(self.optim, SkipStepOptimizer):
                 self.optim.latest_grad_norm = grad_norm_before
+        if self.max_grad_clip is not None:
+            # Clamp gradient values.
+            total_elements, clamped_below_count, clamped_above_count, min_grad_value, max_grad_value = self._clamp_grad_values(
+                min_value=-self.max_grad_clip,
+                max_value=self.max_grad_clip,
+            )
+            self.trainer.record_metric(
+                "clamped grad elements", total_elements, namespace="optim"
+            )
+            self.trainer.record_metric(
+                "clamped below count", clamped_below_count, namespace="optim"
+            )
+            self.trainer.record_metric(
+                "clamped above count", clamped_above_count, namespace="optim"
+            )
+            if min_grad_value is not None:
+                self.trainer.record_metric(
+                    "min grad value", min_grad_value, namespace="optim"
+                )
+            if max_grad_value is not None:
+                self.trainer.record_metric(
+                    "max grad value", max_grad_value, namespace="optim"
+                )
+            
+            if max_grad_value > 25 * self.max_grad_clip or min_grad_value < -25 * self.max_grad_clip:
+                log.warning(
+                    f"Unstable gradients detected: max_grad_value={max_grad_value:.6f}, "
+                    f"min_grad_value={min_grad_value:.6f} (clipped to +/- {self.max_grad_clip:.6f})"
+                )
+                self.unstable_flag = True
+
+        # Track unstable parameters every 2 steps
+        unstable_by_norm, unstable_by_extreme = self._track_unstable_parameters(top_n=5)
+        if unstable_by_norm:
+            log.info("Parameters with largest gradient norms:")
+            for i, (name, value, _) in enumerate(unstable_by_norm):
+                log.info(f"  {i+1}. {name}: {value:.6f}")
+        if unstable_by_extreme:
+            log.info("Parameters with most extreme gradient values:")
+            for i, (name, value, _) in enumerate(unstable_by_extreme):
+                log.info(f"  {i+1}. {name}: {value:.6f}")
+        
+        self._update_persistent_unstable_params(unstable_by_norm, unstable_by_extreme)
 
         # Maybe adjust learning rate.
         if self.scheduler is not None:
             for group_idx, group in enumerate(self.optim.param_groups):
                 new_lr = self.scheduler.set_lr(group, self.trainer)
                 self.trainer.record_metric(f"LR (group {group_idx})", new_lr, namespace="optim")
+                
+        for group_idx, group in enumerate(self.optim.param_groups):
+            initial_lr = group['initial_lr']
+            if initial_lr != 1e-4:
+                group['initial_lr'] = 1e-4
 
         # Step optimizer.
         self.optim.step()
         if isinstance(self.optim, SkipStepOptimizer):
             self.record_metric("step skipped", self.optim.step_skipped, namespace="optim")
+            
+        for group_idx, group in enumerate(self.optim.param_groups):
+            direct_lr = group['lr']
+            self.trainer.record_metric(f"Direct Measured LR (group {group_idx})", direct_lr, namespace="optim")
 
         self.model.post_optim_step()
 
@@ -569,6 +638,145 @@ class TransformerTrainModule(TrainModule):
             grads_after, norm_type=norm_type, error_if_nonfinite=False, foreach=foreach
         )
         return total_norm, total_norm_after
+    
+        
+    def _clamp_grad_values(
+            self, 
+            min_value: float = -1.0,
+            max_value: float = 1.0,
+            foreach: Optional[bool] = None
+        ) -> Tuple[int, int, int, Optional[float], Optional[float]]:
+        """
+        Clamps individual gradient values element-wise between min_value and max_value.
+        
+        Args:
+            min_value: Minimum allowed gradient value
+            max_value: Maximum allowed gradient value
+            foreach: Whether to use foreach implementation (not used in this function)
+            
+        Returns:
+            Tuple of (total_elements, clamped_below_count, clamped_above_count)
+        """
+        parameters = [p for p in self.model.parameters() if p.requires_grad]
+        
+        total_elements = 0
+        clamped_below_count = 0
+        clamped_above_count = 0
+        max_grad_value = None
+        min_grad_value = None
+        
+        for p in parameters:
+            if p.grad is not None:
+                grad = p.grad.data
+                
+                # Count total elements
+                numel = grad.numel()
+                total_elements += numel
+
+                # Update min and max gradient values
+                if min_grad_value is None:
+                    min_grad_value = grad.min().item()
+                else:
+                    min_grad_value = min(min_grad_value, grad.min().item())
+
+                if max_grad_value is None:
+                    max_grad_value = grad.max().item()
+                else:
+                    max_grad_value = max(max_grad_value, grad.max().item())
+
+                # Count elements below min_value
+                below_min_mask = grad < min_value
+                clamped_below_count += below_min_mask.sum().item()
+                
+                # Count elements above max_value
+                above_max_mask = grad > max_value
+                clamped_above_count += above_max_mask.sum().item()
+                
+                # Perform clamping
+                p.grad.data.clamp_(min=min_value, max=max_value)
+        
+        # Handle FSDP models
+        if isinstance(self.model, FSDP):
+            # Synchronize counts across all FSDP processes
+            counts = torch.tensor(
+                [total_elements, clamped_below_count, clamped_above_count],
+                device=self.model.compute_device
+            )
+            torch.distributed.all_reduce(counts, op=torch.distributed.ReduceOp.SUM)
+            total_elements, clamped_below_count, clamped_above_count = counts.tolist()
+        
+        clamping_percentage_below = (clamped_below_count / max(1, total_elements)) * 100
+        clamping_percentage_above = (clamped_above_count / max(1, total_elements)) * 100
+        
+        # Log statistics if significant clamping occurred
+        if clamping_percentage_below > 0.1 or clamping_percentage_above > 0.1:
+            log.info(
+                f"Gradient clamping: {clamping_percentage_below:.2f}% below {min_value}, "
+                f"{clamping_percentage_above:.2f}% above {max_value}"
+            )
+        
+        return total_elements, clamped_below_count, clamped_above_count, min_grad_value, max_grad_value
+
+    def _track_unstable_parameters(self, top_n: int = 5):
+        """
+        Tracks the top N most "unstable" parameters in the model.
+        Tracks both:
+        1. Parameters with largest gradient norms (scaled by parameter size)
+        2. Parameters with most extreme gradient values (min and max)
+        Args:
+            top_n: Number of top unstable parameters to track
+        Returns:
+            Tuple of (param_grad_norms, param_grad_extremes)
+            Each is a list of (name, value, metric) tuples
+        """
+        grad_norms = []
+        grad_extremes = []
+        for name, param in self.model.named_parameters():
+            if param.grad is not None and param.requires_grad:
+                grad_norm = param.grad.norm(2).item() / (param.numel() ** 0.5)
+                grad_norms.append((name, grad_norm, "norm"))
+                if param.grad.numel() > 0:
+                    min_grad = param.grad.min().item()
+                    max_grad = param.grad.max().item()
+                    extreme_val = max_grad if abs(max_grad) > abs(min_grad) else min_grad
+                    grad_extremes.append((name, extreme_val, "extreme"))
+        grad_norms.sort(key=lambda x: x[1], reverse=True)
+        grad_extremes.sort(key=lambda x: abs(x[1]), reverse=True)
+        return grad_norms[:top_n], grad_extremes[:top_n]
+    
+    
+    def _update_persistent_unstable_params(self, unstable_by_norm, unstable_by_extreme):
+        self._unstable_tracking_counter += 1
+        for name, value, _ in unstable_by_norm:
+            if name in self._persistent_unstable_params["by_norm"]:
+                count, max_val = self._persistent_unstable_params["by_norm"][name]
+                self._persistent_unstable_params["by_norm"][name] = (count + 1, max(max_val, value))
+            else:
+                self._persistent_unstable_params["by_norm"][name] = (1, value)
+        for name, value, _ in unstable_by_extreme:
+            if name in self._persistent_unstable_params["by_extreme"]:
+                count, max_val = self._persistent_unstable_params["by_extreme"][name]
+                self._persistent_unstable_params["by_extreme"][name] = (count + 1, max(max_val, abs(value)))
+            else:
+                self._persistent_unstable_params["by_extreme"][name] = (1, abs(value))
+        if self._unstable_tracking_counter % 10 == 0:
+            norm_sorted = sorted(
+                [(name, count, max_val) for name, (count, max_val) in self._persistent_unstable_params["by_norm"].items()],
+                key=lambda x: (x[1], x[2]), reverse=True
+            )
+            extreme_sorted = sorted(
+                [(name, count, max_val) for name, (count, max_val) in self._persistent_unstable_params["by_extreme"].items()],
+                key=lambda x: (x[1], x[2]), reverse=True
+            )
+            log.info("Persistently unstable parameters by gradient norm (frequency, max value):")
+            for i, (name, count, max_val) in enumerate(norm_sorted[:5]):
+                frequency = count / self._unstable_tracking_counter
+                log.info(f"  {i+1}. {name}: freq={frequency:.2f}, max={max_val:.6f}")
+            log.info("Persistently unstable parameters by extreme values (frequency, max value):")
+            for i, (name, count, max_val) in enumerate(extreme_sorted[:5]):
+                frequency = count / self._unstable_tracking_counter
+                log.info(f"  {i+1}. {name}: freq={frequency:.2f}, max={max_val:.6f}")
+
 
     def _prepare_batch(
         self, batch: Dict[str, Any], labels: Optional[torch.Tensor] = None

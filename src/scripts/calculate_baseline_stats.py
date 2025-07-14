@@ -37,12 +37,14 @@ log = logging.getLogger(__name__)
 # Configuration
 SEQUENCE_LENGTH = 1024
 BATCH_SIZE = 4
-DATA_MANIFEST_PATH = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/dolmino6b_sample.txt"
-BASE_DATA_PREFIX = "http://olmo-data.org"
+# DATA_MANIFEST_PATH = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/dolmino6b_sample.txt"
+# BASE_DATA_PREFIX = "http://olmo-data.org"
+DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/fineweb_val.txt"
+BASE_DATA_PREFIX: str = "/ssd/karen/finewebedu_buckets"
 MODEL_CHECKPOINT_PATH = "../../converted/olmo2_1b/model_and_optim"
 EVAL_STEPS = 5000  # Number of batches to evaluate
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DESIRED_GPU_ID = 0
+DESIRED_GPU_ID = 1
 
 # Sliding window configuration
 USE_SLIDING_WINDOW = True
