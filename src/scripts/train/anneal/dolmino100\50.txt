@@ -177,3 +177,7 @@ preprocessed/dclm/v0_rep32_ft7percentile_fw2/documents/allenai/dolma2-tokenizer/
 preprocessed/dclm/v0_rep32_ft7percentile_fw2/documents/allenai/dolma2-tokenizer/0018/part-24-00000.npy
 preprocessed/dclm/v0_rep32_ft7percentile_fw2/documents/allenai/dolma2-tokenizer/0023/part-20-00000.npy
 preprocessed/dclm/v0_rep32_ft7percentile_fw2/documents/allenai/dolma2-tokenizer/0016/part-18-00000.npy
+preprocessed/pes2o/allenai/dolma2-tokenizer/part-03-00000.npy
+preprocessed/pes2o/allenai/dolma2-tokenizer/part-08-00000.npy
+preprocessed/pes2o/allenai/dolma2-tokenizer/part-18-00000.npy
+preprocessed/pes2o/allenai/dolma2-tokenizer/part-15-00000.npy

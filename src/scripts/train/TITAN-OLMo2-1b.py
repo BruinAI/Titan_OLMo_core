@@ -123,31 +123,40 @@ log = logging.getLogger(__name__)
 PHASE = "full_model"  # Change from "memory_only" to "full_model"
 
 # Set this if you want to start training from an existing checkpoint
-CHECKPOINT: Optional[str] = None #"/ssd/karen/titan_checkpoints/cleaned_train/step4171"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
+CHECKPOINT: Optional[str] = None #"/ssd/karen/titan_checkpoints/low_aux/step7700"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
 
 # Data configuration
 # Path to your manifest file listing .npy data shards
 
-TRAIN_PHASE = 4 # For example, 0 corresponds to the first entry in the schedule
+TRAIN_PHASE = 8 # For example, 0 corresponds to the first entry in the schedule
 
 SCHEDULE = [
-    {"until_step": 200, "seq_len": 512, "min_doc_len": 256, "batch_size": 8, "sw_size": 64,
+    {"until_step": 100, "seq_len": 512, "min_doc_len": 256, "batch_size": 8, "sw_size": 64,
      'global_batch_size': 16, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 1e-2},  
     
-    {"until_step": 800, "seq_len": 1024, "min_doc_len": 512, "batch_size": 4, "sw_size": 128,
+    {"until_step": 250, "seq_len": 1024, "min_doc_len": 512, "batch_size": 4, "sw_size": 128,
+     'global_batch_size': 16, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 1e-2},
+    
+    {"until_step": 800, "seq_len": 512*3, "min_doc_len": 512, "batch_size": 4, "sw_size": 128,
      'global_batch_size': 16, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 1e-2},
 
-    {"until_step": 7000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 2, "sw_size": 128,
-     'global_batch_size': 16, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 5e-3},
+    {"until_step": 7000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 128,
+     'global_batch_size': 18, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 5e-3},
 
     {"until_step": 8500, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 256,
-     'global_batch_size': 63, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 5e-3},
+     'global_batch_size': 33, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 5e-3},
 
     {"until_step": 20000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 512,
-     'global_batch_size': 15, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 5e-3},
+     'global_batch_size': 63, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 5e-3},
+    
+    {"until_step": 20000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 512,
+     'global_batch_size': 63, 'data_source': 'fineweb', 'load_trainer': False, 'clamp_max': 5e-3},
+    
+    {"until_step": 20000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 512,
+     'global_batch_size': 63, 'data_source': 'fineweb', 'load_trainer': True, 'clamp_max': 5e-3},
     
     {"until_step": 3200, "seq_len": 4096, "min_doc_len": 2048, "batch_size": 2, "sw_size": 512, 
-     'global_batch_size': 32, 'data_source': 'pes2o', 'load_trainer': True, 'clamp_max': 1e-3},
+     'global_batch_size': 64, 'data_source': 'fineweb', 'load_trainer': True, 'clamp_max': 1e-3},
     
     {"until_step": 5200, "seq_len": 8192, "min_doc_len": 4096, "batch_size": 1, "sw_size": 512, 
      'global_batch_size': 48, 'data_source': 'pes2o', 'load_trainer': True, 'clamp_max': 1e-3},
@@ -738,7 +747,7 @@ class UnstableGradientTrackerCallbackConfig(CallbackConfig):
 
 # Add these as class attributes to your trainer or module
 class AuxiliaryLossTracker:
-    def __init__(self, momentum=0.99, base_gates_weight=0.001, base_internal_weight=0.01, update_interval=10, enable_scaling=True):
+    def __init__(self, momentum=0.99, base_gates_weight=0.001, base_internal_weight=0.01, update_interval=10, enable_scaling=True, decay_steps=50):
         self.momentum = momentum
         self.running_avg_gates = None
         self.running_avg_internal = None
@@ -748,7 +757,8 @@ class AuxiliaryLossTracker:
         self.base_internal_weight = base_internal_weight
         self.update_interval = update_interval
         self.enable_scaling = enable_scaling  # New parameter to enable/disable scaling
-        
+        self.decay_steps = decay_steps  # New parameter for decay steps
+
         # Cache the current weights to avoid recalculating every step
         self.current_gates_weight = base_gates_weight
         self.current_internal_weight = base_internal_weight
@@ -775,11 +785,19 @@ class AuxiliaryLossTracker:
         if (self.step_count % self.update_interval) == 0:
             self.current_gates_weight = self.base_gates_weight * self.running_avg_main / (self.running_avg_gates + 1e-8)
             self.current_internal_weight = self.base_internal_weight * self.running_avg_main / (self.running_avg_internal + 1e-8)
-            
+
             self.last_update_step = self.step_count
+        
+                    # Apply decay to the weights
+        if self.decay_steps > 0:
+            decay_factor = min(1, self.step_count / self.decay_steps)
+            self.current_gates_weight *= (1 - decay_factor)
+            self.current_internal_weight *= (1 - decay_factor)
         
         # Return the cached weights (updated only every update_interval steps)
         self.step_count += 1
+        
+        
         return self.current_gates_weight, self.current_internal_weight
     
     def get_current_weights(self):
@@ -1261,9 +1279,10 @@ def train(config: TitanExperimentConfig):
     aux_loss_tracker = AuxiliaryLossTracker(
         momentum=0.999, 
         base_gates_weight=0.0, 
-        base_internal_weight=1e-6, #was 5e-3 last stable run,
+        base_internal_weight=5e-5, #was 5e-3 last stable run,
         update_interval= 32 * 50,  # Update weights every 50 macro steps
-        enable_scaling=True
+        enable_scaling=True,
+        decay_steps=100*16
     )
 
     # Define the new method that will replace train_module.model_forward
@@ -1317,7 +1336,7 @@ def train(config: TitanExperimentConfig):
                 loss, total_gates_squared_loss, total_internal_loss
             )
             loss = attach_auxiliary_loss(loss, gates_weight * total_gates_squared_loss)
-            # Accumulate instead of logging immediately
+            ## Accumulate instead of logging immediately
             slf.memory_metrics_accumulator['aux_gates_losses'].append(total_gates_squared_loss.detach())
         
             loss = attach_auxiliary_loss(loss, internal_weight * total_internal_loss)
