@@ -13,16 +13,32 @@ import sys
 from dataclasses import dataclass, field
 from typing import List, Optional, cast, Dict, Any
 import copy  # Add this import at the top of the file with other imports
+import torch
+import torch.utils.checkpoint as ckpt
+
+import torch._dynamo as td
+td.config.cache_size_limit = 32
+#torch._functorch.config.activation_memory_budget = 0.5
 
 DESIRED_GPU_ID = 1
 if "CUDA_VISIBLE_DEVICES" not in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = str(DESIRED_GPU_ID)
     
+# Add test string for inference testing
+TEST_STRING = """In a groundbreaking study on neural memory systems, researchers discovered that contextual associations 
+between concepts can be mathematically represented as dense vector spaces. This finding has significant implications for 
+how we understand both biological and artificial memory formation. The key insight from this work suggests that"""
+
+# Inference parameters
+MAX_NEW_TOKENS = 100
+TEMPERATURE = 0.8
+TOP_P = 0.9
+TOP_K = 40
 
 from tqdm import tqdm
 from pathlib import Path
 import wandb
-from olmo_core.nn.transformer.block import MAGReorderedNormTransformerBlock
+from olmo_core.nn.transformer.block import MAGReorderedNormTransformerBlock, TransformerBlock
 from olmo_core.train.callbacks import Callback # Ensure Callback is imported
 from olmo_core.train.trainer import Trainer # For type hinting
 from olmo_core.train.train_module import TrainModule # For type hinting
@@ -44,7 +60,7 @@ if sys.platform == "darwin":  # if macOS
     os.environ["LDFLAGS"] = "-L/opt/homebrew/opt/llvm/lib"
     os.environ["CPPFLAGS"] = "-I/opt/homebrew/opt/llvm/include"
 
-import torch
+
 from torch.profiler import profile, ProfilerActivity
 from transformers import AutoTokenizer
 import bitsandbytes as bnb
@@ -62,6 +78,7 @@ from olmo_core.data import (
     NumpyDatasetConfig,
     NumpyDatasetType,
     TokenizerConfig,
+    NumpyFSLDataLoader
 )
 from olmo_core.distributed.parallel import DataParallelType
 from olmo_core.nn.transformer import TransformerConfig, TransformerBlockType
@@ -106,34 +123,73 @@ log = logging.getLogger(__name__)
 PHASE = "full_model"  # Change from "memory_only" to "full_model"
 
 # Set this if you want to start training from an existing checkpoint
-CHECKPOINT: Optional[str] = None # "/ssd/karen/titan_checkpoints/checkpoint_restart_3500/step85900"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
+CHECKPOINT: Optional[str] = None #"/ssd/karen/titan_checkpoints/low_aux/step7700"   #"/ssd/karen/titan_checkpoints/shape_get/step800"
 
 # Data configuration
 # Path to your manifest file listing .npy data shards
-DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/dolmino6b_sample.txt"
 
-# Base prefix for the data shards listed in the manifest.
-# If your .npy files are hosted, this would be the base HTTP/S3 URL.
-# Example: BASE_DATA_PREFIX = "http://olmo-data.org"
-# If they are local, this would be the root directory where the 'preprocessed/...' structure exists.
-# Example: BASE_DATA_PREFIX = "/ssd/karen/olmo_data" # Ensure this path exists if local
-# FIXME: PLEASE SET THIS TO THE CORRECT PREFIX FOR YOUR DATA:
-BASE_DATA_PREFIX: str = "http://olmo-data.org" # Defaulting to HTTP, adjust if your data is local
+TRAIN_PHASE = 8 # For example, 0 corresponds to the first entry in the schedule
 
-SEQUENCE_LENGTH = 1024  # Limited to 1024 tokens as specified
-INTRA_DOCUMENT_MASKING = False
+SCHEDULE = [
+    {"until_step": 100, "seq_len": 512, "min_doc_len": 256, "batch_size": 8, "sw_size": 64,
+     'global_batch_size': 16, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 1e-2},  
+    
+    {"until_step": 250, "seq_len": 1024, "min_doc_len": 512, "batch_size": 4, "sw_size": 128,
+     'global_batch_size': 16, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 1e-2},
+    
+    {"until_step": 800, "seq_len": 512*3, "min_doc_len": 512, "batch_size": 4, "sw_size": 128,
+     'global_batch_size': 16, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 1e-2},
 
-# For single GPU, we can use a slightly larger batch size
-BATCH_SIZE = 4  # Increased from 2 for single GPU efficiency
-RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
-GLOBAL_BATCH_SIZE = RANK_MICROBATCH_SIZE
+    {"until_step": 7000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 128,
+     'global_batch_size': 18, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 5e-3},
+
+    {"until_step": 8500, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 256,
+     'global_batch_size': 33, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 5e-3},
+
+    {"until_step": 20000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 512,
+     'global_batch_size': 63, 'data_source': 'dolma2', 'load_trainer': True, 'clamp_max': 5e-3},
+    
+    {"until_step": 20000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 512,
+     'global_batch_size': 63, 'data_source': 'fineweb', 'load_trainer': False, 'clamp_max': 5e-3},
+    
+    {"until_step": 20000, "seq_len": 2048, "min_doc_len": 1024, "batch_size": 3, "sw_size": 512,
+     'global_batch_size': 63, 'data_source': 'fineweb', 'load_trainer': True, 'clamp_max': 5e-3},
+    
+    {"until_step": 3200, "seq_len": 4096, "min_doc_len": 2048, "batch_size": 2, "sw_size": 512, 
+     'global_batch_size': 64, 'data_source': 'fineweb', 'load_trainer': True, 'clamp_max': 1e-3},
+    
+    {"until_step": 5200, "seq_len": 8192, "min_doc_len": 4096, "batch_size": 1, "sw_size": 512, 
+     'global_batch_size': 48, 'data_source': 'pes2o', 'load_trainer': True, 'clamp_max': 1e-3},
+]
+
+# Get the active configuration based on the training phase
+active_config = SCHEDULE[TRAIN_PHASE]
+
+assert (active_config['load_trainer'] or ((not active_config['load_trainer']) and (CHECKPOINT is not None)))
+
+VAL_DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/fineweb_val.txt"
+VAL_BASE_DATA_PREFIX: str = "/ssd/karen/finewebedu_buckets"
+
+if active_config["data_source"] == "dolma2":
+    DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/dolmino100\\50.txt"
+    BASE_DATA_PREFIX: str = "http://olmo-data.org" # Defaulting to HTTP, adjust if your data is local
+    
+elif active_config["data_source"] == "fineweb":
+    DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/fineweb_1b.txt"
+    BASE_DATA_PREFIX: str = "/ssd/karen/finewebedu_buckets"  # Local path to FineWeb data shards
+elif active_config["data_source"] == "pes2o":
+    DATA_MANIFEST_PATH: str = "/ssd/karen/Titan_OLMo_core/src/scripts/train/anneal/pes2o_data.txt"
+    BASE_DATA_PREFIX: str = "http://olmo-data.org"  # http path to PES2O data shards
+else:
+    raise ValueError(f"Unknown data source: {active_config['data_source']}")
+
 
 # Memory configuration
 MEMORY_LAYERS = [3,7,11,15]  # Every 4th layer
 USE_SLIDING_WINDOW = True
-WINDOW_SIZE = 512
-PERSISTENT_MEM_LEN = 4  # Number of persistent memory tokens
-CHUNK_SIZE = 256  # Size of chunks for memory processing
+WINDOW_SIZE = active_config["sw_size"]  # Sliding window size from the active config
+PERSISTENT_MEM_LEN = 16  # Number of persistent memory tokens
+CHUNK_SIZE = 512  # Size of chunks for memory processing
 N_LAYERS = 2  # Number of layers in memory component
 HIDDEN_DIM_MULTIPLE = 2  # Multiple for memory hidden dimension
 
@@ -141,6 +197,17 @@ HIDDEN_DIM_MULTIPLE = 2  # Multiple for memory hidden dimension
 WANDB_PROJECT = "Titan_OLMo"  # Your WandB project name
 WANDB_ENTITY = "k_moss"  # Your WandB username or organization
 WANDB_RUN_NAME = None  # Set to None to use the run_name parameter
+
+#CHUNK_NUMBER = 8
+SEQUENCE_LENGTH = active_config["seq_len"]
+MIN_DOC_LENGTH = active_config["min_doc_len"]
+INTRA_DOCUMENT_MASKING = False
+
+# For single GPU, we can use a slightly larger batch size
+BATCH_SIZE = active_config["batch_size"]
+EFFECTIVE_BATCH_SIZE_COEFFICIENT = active_config["global_batch_size"] // BATCH_SIZE  # Coefficient to adjust effective batch size for single GPU
+RANK_MICROBATCH_SIZE = BATCH_SIZE * SEQUENCE_LENGTH
+GLOBAL_BATCH_SIZE = EFFECTIVE_BATCH_SIZE_COEFFICIENT * BATCH_SIZE * SEQUENCE_LENGTH # Total batch size across all ranks
 
 TOKENIZER_CONFIG = TokenizerConfig.dolma2()
 
@@ -160,7 +227,7 @@ memory_config = MemoryConfig(
 # Training configuration
 MEMORY_ONLY_STEPS = 2000  # Number of steps for memory-only training
 LEARNING_RATE = 5e-5
-FULL_MODEL_LEARNING_RATE = 3e-4
+FULL_MODEL_LEARNING_RATE = 5e-5
 
 # Local save path - create checkpoints directory if it doesn't exist
 SAVE_DIR = os.path.expanduser("~/titan_checkpoints")
@@ -169,6 +236,575 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 ###########################
 #### END CONFIGURATION ####
 ###########################
+
+import logging
+import torch
+import numpy as np
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+
+from olmo_core.train.callbacks import Callback
+from olmo_core.data import (
+    NumpyDataLoaderConfig,
+    NumpyDatasetConfig,
+    NumpyDatasetType,
+    TokenizerConfig,
+    NumpyFSLDataLoader,
+)
+from olmo_core.data.collator import DataCollator
+from olmo_core.distributed.utils import get_rank, get_world_size, get_fs_local_rank
+from olmo_core.distributed.parallel import get_dp_process_group
+
+log = logging.getLogger(__name__)
+
+class ValidationCallback(Callback):
+    """
+    Callback for running validation on a fixed subset of data.
+    Evaluates CE loss, top1 accuracy, and top5 accuracy.
+    """
+    
+    priority = 10  # Higher priority to run before other callbacks after step
+    
+    def __init__(
+        self,
+        data_path: str,
+        tokenizer_config: TokenizerConfig,
+        val_size: int = 200,
+        eval_interval: int = 100,
+        sequence_length: Optional[int] = None,
+        work_dir: Optional[str] = None,
+        save_folder: Optional[str] = None,
+    ):
+        """
+        Initialize validation callback.
+        
+        Args:
+            data_path: Path to the validation data directory
+            tokenizer_config: Tokenizer configuration
+            val_size: Number of sequences to use for validation
+            eval_interval: Run validation every this many steps
+            sequence_length: Sequence length for validation (if None, will use training sequence length)
+            work_dir: Working directory for data loader
+            save_folder: Folder to save validation results
+        """
+        super().__init__()
+        self.data_path = data_path
+        self.tokenizer_config = tokenizer_config
+        self.val_size = val_size
+        self.eval_interval = eval_interval
+        self.fixed_sequence_length = sequence_length
+        self.work_dir = work_dir
+        self.save_folder = save_folder
+        self.val_data_loader = None
+        self.last_val_step = -1
+        self._current_sequence_length = None
+        self.last_val_loss = None
+    
+    def post_attach(self):
+        """Called after the callback is attached to the trainer."""
+        # We defer creating the validation data loader until first use
+        log.info(f"Validation callback attached. Will evaluate every {self.eval_interval} steps.")
+    
+    def state_dict(self) -> Dict[str, Any]:
+        """
+        Get the state dict to save.
+        Only track the last validation step, not the actual data loader state
+        which could cause issues with dataset changes between phases.
+        """
+        return {
+            "last_val_step": self.last_val_step,
+            "current_sequence_length": self._current_sequence_length,
+        }
+
+    def load_state_dict(self, state_dict: Dict[str, Any]):
+        """
+        Load a state dict.
+        Only restore the last validation step, not the actual data loader state.
+        """
+        if "last_val_step" in state_dict:
+            self.last_val_step = state_dict["last_val_step"]
+        
+        # Don't restore current_sequence_length - we'll detect the current one
+        # Force data loader recreation after checkpoint loading
+        self.val_data_loader = None
+    
+    def post_checkpoint_loaded(self, path):
+        """Called when a checkpoint is successfully loaded."""
+        # Force data loader recreation to match current training phase
+        self.val_data_loader = None
+        log.info(f"Checkpoint loaded from {path}, validation data loader will be recreated on next use")
+    
+    def _get_current_sequence_length(self) -> int:
+        """Get the sequence length matching the current training phase."""
+        if self.fixed_sequence_length is not None:
+            return self.fixed_sequence_length
+            
+        return SCHEDULE[TRAIN_PHASE]["seq_len"]
+    
+    def _get_current_microbatch_size(self) -> int:
+        """Get the micro batch size matching the current training phase."""
+        return SCHEDULE[TRAIN_PHASE]["batch_size"]
+    
+    def _create_val_data_loader(self):
+        """Create a validation data loader with the current sequence length."""
+        sequence_length = self._get_current_sequence_length()
+        log.info(f"Creating validation data loader with sequence length {sequence_length}")
+        
+        # Find validation data files
+        if Path(self.data_path).is_dir():
+            # If it's a directory, get all .npy files
+            val_files = list(Path(self.data_path).glob("*.npy"))[:self.val_size]
+            val_paths = [str(p) for p in val_files]
+        else:
+            # If it's a file, assume it's a manifest
+            with open(self.data_path, "r") as f:
+                all_paths = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            
+            # Take a subset for validation
+            val_paths = all_paths[:self.val_size]
+            
+            # Add full path if needed
+            if "/" not in val_paths[0] and ":" not in val_paths[0]:
+                base_dir = Path(VAL_BASE_DATA_PREFIX)
+                val_paths = [str(base_dir / p) for p in val_paths]
+        
+        # If we don't have enough validation samples, warn
+        if len(val_paths) < self.val_size:
+            log.warning(f"Only found {len(val_paths)} validation samples, wanted {self.val_size}")
+        
+        # Create dataset config
+        dataset_config = NumpyDatasetConfig(
+            paths=val_paths,
+            name=NumpyDatasetType.fsl,
+            sequence_length=sequence_length,
+            tokenizer=self.tokenizer_config,
+            work_dir=self.work_dir or (self.save_folder and str(Path(self.save_folder) / "val_cache")),
+            generate_doc_lengths=False,
+        )
+        
+        # Build dataset
+        dataset = dataset_config.build()
+        
+        # Get DP world size and rank correctly
+        dp_process_group = self.trainer.train_module.dp_process_group
+        dp_world_size = get_world_size(dp_process_group)
+        dp_rank = get_rank(dp_process_group)
+        
+        # We want a smaller batch size for validation to avoid OOM
+        val_batch_size = self._get_current_microbatch_size() * sequence_length
+        
+        # Create data loader manually rather than through config
+        val_data_loader = NumpyFSLDataLoader(
+            dataset,
+            collator=DataCollator(pad_token_id=dataset.pad_token_id),
+            global_batch_size=val_batch_size * dp_world_size,
+            work_dir=dataset.work_dir,
+            seed=42,  # Fixed seed for validation
+            dp_world_size=dp_world_size,
+            dp_rank=dp_rank,
+            fs_local_rank=get_fs_local_rank(),
+            shuffle=False,  # No need to shuffle validation data
+            num_workers=1,
+        )
+        
+        # Initialize for first epoch
+        val_data_loader.reshuffle(epoch=1)
+        
+        return val_data_loader
+    
+    def post_step(self):
+        """Called after each training step."""
+        current_step = self.trainer.global_step
+        
+        # Check if it's time to run validation
+        if current_step % self.eval_interval == 0 and current_step > self.last_val_step:
+            self.run_validation()
+            self.last_val_step = current_step
+    
+    def run_validation(self):
+        """Run validation and log metrics."""
+        # Create or update validation data loader if needed
+        current_seq_len = self._get_current_sequence_length()
+        if (self.val_data_loader is None or 
+            self._current_sequence_length != current_seq_len):
+            
+            # If we had a previous data loader, clean it up
+            if self.val_data_loader is not None:
+                self.val_data_loader.reset()
+            
+            # Create new data loader with current sequence length
+            self.val_data_loader = self._create_val_data_loader()
+            self._current_sequence_length = current_seq_len
+        
+        log.info(f"Running validation at step {self.trainer.global_step}")
+        
+        # Set model to eval mode
+        model = self.trainer.train_module.model
+        was_training = model.training
+        model.eval()
+        
+        # Initialize metric trackers
+        total_loss = 0.0
+        total_top1_correct = 0
+        total_top5_correct = 0
+        total_tokens = 0
+        
+        # Validation loop
+        with torch.no_grad():
+            # Reshuffle validation data loader
+            self.val_data_loader.reshuffle(epoch=self.trainer.epoch)
+            
+            # Use torch.amp.autocast for the same precision as training
+            with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+                for batch_idx, batch in enumerate(self.val_data_loader):
+                    if batch_idx >= self.val_size:
+                        break
+                    
+                    # Move batch to model device - handle different types properly
+                    processed_batch = {}
+                    for k, v in batch.items():
+                        if isinstance(v, torch.Tensor):
+                            processed_batch[k] = v.to(self.trainer.device)
+                        elif isinstance(v, list):
+                            # Handle lists of tensors or other items
+                            if all(isinstance(item, torch.Tensor) for item in v):
+                                processed_batch[k] = [item.to(self.trainer.device) for item in v]
+                            else:
+                                processed_batch[k] = v  # Keep as is if not tensors
+                        else:
+                            processed_batch[k] = v  # Keep as is for other types
+                    
+                    # Use the processed batch
+                    batch = processed_batch
+                    
+                    # Get input_ids and labels (shifted for next-token prediction)
+                    input_ids = batch["input_ids"]
+                    labels = input_ids.clone()
+                    
+                    # Forward pass
+                    outputs = model(input_ids)
+                    logits = outputs if not isinstance(outputs, tuple) else outputs[0]
+                    
+                    # Calculate loss
+                    # Shift logits and labels for next-token prediction
+                    shift_logits = logits[:, :-1, :].contiguous()
+                    shift_labels = labels[:, 1:].contiguous()
+                    
+                    # Calculate CE loss
+                    loss_fct = torch.nn.CrossEntropyLoss(reduction='none')
+                    loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                    
+                    # Calculate accuracy
+                    _, top1_predictions = shift_logits.max(dim=-1)
+                    top1_correct = (top1_predictions == shift_labels).float()
+                    
+                    # Calculate top-5 accuracy
+                    _, top5_predictions = shift_logits.topk(5, dim=-1)
+                    top5_correct = top5_predictions.eq(shift_labels.unsqueeze(-1)).any(dim=-1).float()
+                    
+                    # Update metrics (ignore padding tokens if present)
+                    non_pad_mask = (shift_labels != self.tokenizer_config.pad_token_id).float()
+                    valid_tokens = non_pad_mask.sum().item()
+                    
+                    total_loss += (loss * non_pad_mask.view(-1)).sum().item()
+                    total_top1_correct += (top1_correct * non_pad_mask).sum().item()
+                    total_top5_correct += (top5_correct * non_pad_mask).sum().item()
+                    total_tokens += valid_tokens
+                    
+                    # Log progress
+                    if (batch_idx + 1) % 10 == 0:
+                        log.info(f"Validation: {batch_idx + 1}/{min(self.val_size, len(self.val_data_loader))}")
+            
+            # Reset validation data loader
+            self.val_data_loader.reset()
+        
+        # Set model back to its previous mode
+        if was_training:
+            model.train()
+        
+        # Calculate final metrics
+        if total_tokens > 0:
+            avg_loss = total_loss / total_tokens
+            loss_change = 0
+            top1_accuracy = total_top1_correct / total_tokens
+            top5_accuracy = total_top5_correct / total_tokens
+            if self.last_val_loss is None:
+                self.last_val_loss = avg_loss
+            else:
+                loss_change = avg_loss - self.last_val_loss
+                self.last_val_loss = avg_loss
+            # Log metrics
+            metrics = {
+                "val/loss": avg_loss,
+                "val/top1_accuracy": top1_accuracy,
+                "val/top5_accuracy": top5_accuracy,
+                "val/tokens": total_tokens,
+                "val/loss_change": loss_change,
+            }
+            
+            log.info(f"Validation results at step {self.trainer.global_step}:")
+            log.info(f"  Loss: {avg_loss:.4f}")
+            log.info(f"  Top-1 Accuracy: {top1_accuracy:.4f}")
+            log.info(f"  Top-5 Accuracy: {top5_accuracy:.4f}")
+            log.info(f"  Tokens evaluated: {total_tokens}")
+            
+            # Record metrics in trainer
+            for name, value in metrics.items():
+                self.trainer.record_metric(name, value)
+            
+            # Call log_metrics to ensure WandB and other loggers get the metrics
+            self.log_metrics(self.trainer.global_step, metrics)
+
+from olmo_core.train.callbacks import CallbackConfig
+
+# Add this after your ValidationCallback class
+@dataclass
+class ValidationCallbackConfig(CallbackConfig):
+    """Config for ValidationCallback"""
+    data_path: str
+    tokenizer_config: TokenizerConfig
+    val_size: int = 200
+    eval_interval: int = 100
+    sequence_length: Optional[int] = None
+    work_dir: Optional[str] = None
+    save_folder: Optional[str] = None
+
+    def build(self, trainer: "Trainer") -> Optional[Callback]:
+        return ValidationCallback(
+            data_path=self.data_path,
+            tokenizer_config=self.tokenizer_config,
+            val_size=self.val_size,
+            eval_interval=self.eval_interval,
+            sequence_length=self.sequence_length,
+            work_dir=self.work_dir,
+            save_folder=self.save_folder,
+        )
+
+
+# Add this class after ValidationCallback and ValidationCallbackConfig
+
+class UnstableGradientTrackerCallback(Callback):
+    """
+    Callback that monitors for unstable gradients and logs the input that caused them.
+    When train_module.unstable_flag is True, logs the tokenized input to a file.
+    """
+    
+    priority = 8  # Run before checkpointer but after gradient update
+    
+    def __init__(
+        self,
+        tokenizer_config: TokenizerConfig,
+        save_folder: Optional[str] = None,
+        track_top_k_tokens: int = 50,
+    ):
+        """
+        Initialize the unstable gradient tracker.
+        
+        Args:
+            tokenizer_config: Tokenizer configuration
+            save_folder: Where to save logs (defaults to trainer's save folder)
+            track_top_k_tokens: Number of tokens to save from the beginning and end
+        """
+        super().__init__()
+        self.tokenizer_config = tokenizer_config
+        self.save_folder = save_folder
+        self.track_top_k_tokens = track_top_k_tokens
+        self.last_batch = None
+        self.last_unstable_step = -1
+        self._tokenizer = None
+        
+    def post_attach(self):
+        """Called after the callback is attached to the trainer."""
+        log.info(f"Unstable gradient tracker attached. Will save problematic inputs when unstable gradients detected.")
+        
+        # Initialize tokenizer
+        from transformers import AutoTokenizer
+        try:
+            self._tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
+            log.info(f"Loaded OLMo-2 tokenizer for gradient instability tracking")
+        except Exception as e:
+            log.warning(f"Failed to load OLMo-2 tokenizer: {e}. Will decode using token IDs only.")
+    
+    def pre_step(self, batch: Dict[str, Any]):
+        """Store the current batch for possible logging if unstable gradients are detected."""
+        # Make a lightweight copy of the input_ids only
+        if "input_ids" in batch:
+            # Store CPU copy to avoid keeping tensors on GPU
+            self.last_batch = {
+                "input_ids": batch["input_ids"].detach().cpu(),
+                "batch_time": self.trainer.global_step
+            }
+    
+    def post_step(self):
+        """Check for unstable gradients after optimization step."""
+        # Skip if we've already logged this step
+        if self.trainer.global_step == self.last_unstable_step:
+            return
+            
+        # Check if unstable flag is set
+        if hasattr(self.trainer.train_module, 'unstable_flag') and self.trainer.train_module.unstable_flag:
+            self._log_unstable_batch()
+            
+            # Reset the flag
+            self.trainer.train_module.unstable_flag = False
+            self.last_unstable_step = self.trainer.global_step
+    
+    def post_checkpoint_saved(self, path):
+        """Save unstable inputs log when a checkpoint is saved."""
+        # Save the cumulative log file
+        log_path = self._get_log_path()
+        log.info(f"Saved unstable gradient log to: {log_path}")
+    
+    def _log_unstable_batch(self):
+        """Log the batch that caused unstable gradients."""
+        if self.last_batch is None:
+            log.warning("Unstable gradients detected but no batch was stored.")
+            return
+        
+        log_path = self._get_log_path()
+        log_dir = Path(log_path).parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create entry for this unstable batch
+        entry = {
+            "step": self.trainer.global_step,
+            "sequences": []
+        }
+        
+        input_ids = self.last_batch["input_ids"]
+        
+        # Process each sequence in the batch
+        for i, seq in enumerate(input_ids):
+            sequence_entry = {}
+            
+            # Get token IDs (safely handle different tensor types)
+            token_ids = seq.tolist() if hasattr(seq, 'tolist') else seq
+            
+            # Get text from tokenizer if available
+            if self._tokenizer is not None:
+                # Only decode the beginning and end of long sequences
+                if len(token_ids) > self.track_top_k_tokens * 2:
+                    start_text = self._tokenizer.decode(token_ids[:self.track_top_k_tokens])
+                    end_text = self._tokenizer.decode(token_ids[-self.track_top_k_tokens:])
+                    sequence_entry["text"] = f"{start_text}...[{len(token_ids) - self.track_top_k_tokens*2} tokens]...{end_text}"
+                else:
+                    sequence_entry["text"] = self._tokenizer.decode(token_ids)
+            
+            # Always store token IDs (but limit the number to avoid giant logs)
+            if len(token_ids) > self.track_top_k_tokens * 2:
+                sequence_entry["token_ids_start"] = token_ids[:self.track_top_k_tokens]
+                sequence_entry["token_ids_end"] = token_ids[-self.track_top_k_tokens:]
+                sequence_entry["total_length"] = len(token_ids)
+            else:
+                sequence_entry["token_ids"] = token_ids
+            
+            entry["sequences"].append(sequence_entry)
+        
+        # Write to log file
+        with open(log_path, "a") as f:
+            f.write(f"\n\n{'='*80}\n")
+            f.write(f"UNSTABLE GRADIENTS DETECTED AT STEP {self.trainer.global_step}\n")
+            f.write(f"{'='*80}\n\n")
+            
+            # Write each sequence
+            for i, seq in enumerate(entry["sequences"]):
+                f.write(f"SEQUENCE {i+1}/{len(entry['sequences'])}:\n")
+                
+                if "text" in seq:
+                    f.write(f"TEXT:\n{seq['text']}\n\n")
+                
+                if "token_ids" in seq:
+                    f.write(f"TOKEN IDS: {seq['token_ids']}\n")
+                else:
+                    f.write(f"TOKEN IDS (first {self.track_top_k_tokens}): {seq['token_ids_start']}\n")
+                    f.write(f"TOKEN IDS (last {self.track_top_k_tokens}): {seq['token_ids_end']}\n")
+                    f.write(f"TOTAL LENGTH: {seq['total_length']} tokens\n")
+                
+                f.write("\n")
+        
+        # Log that we captured this
+        log.warning(f"Unstable gradients detected at step {self.trainer.global_step}. Input logged to {log_path}")
+    
+    def _get_log_path(self):
+        """Get the path to the log file."""
+        save_dir = self.save_folder or self.trainer.save_folder
+        return Path(save_dir) / "unstable_gradients.log"
+
+
+@dataclass
+class UnstableGradientTrackerCallbackConfig(CallbackConfig):
+    """Config for UnstableGradientTrackerCallback"""
+    tokenizer_config: TokenizerConfig
+    save_folder: Optional[str] = None
+    track_top_k_tokens: int = 50
+    
+    def build(self, trainer: "Trainer") -> Optional[Callback]:
+        return UnstableGradientTrackerCallback(
+            tokenizer_config=self.tokenizer_config,
+            save_folder=self.save_folder,
+            track_top_k_tokens=self.track_top_k_tokens,
+        )
+
+# Add these as class attributes to your trainer or module
+class AuxiliaryLossTracker:
+    def __init__(self, momentum=0.99, base_gates_weight=0.001, base_internal_weight=0.01, update_interval=10, enable_scaling=True, decay_steps=50):
+        self.momentum = momentum
+        self.running_avg_gates = None
+        self.running_avg_internal = None
+        self.running_avg_main = None
+        self.step_count = 0
+        self.base_gates_weight = base_gates_weight
+        self.base_internal_weight = base_internal_weight
+        self.update_interval = update_interval
+        self.enable_scaling = enable_scaling  # New parameter to enable/disable scaling
+        self.decay_steps = decay_steps  # New parameter for decay steps
+
+        # Cache the current weights to avoid recalculating every step
+        self.current_gates_weight = base_gates_weight
+        self.current_internal_weight = base_internal_weight
+        self.last_update_step = 0
+    
+    def update_and_get_weights(self, main_loss, gates_loss, internal_loss):
+        
+        # If scaling is disabled, just return the base weights without any computation
+        if not self.enable_scaling:
+            self.step_count += 1
+            return self.base_gates_weight, self.base_internal_weight
+        
+        # Always update running averages (for monitoring) - only if scaling is enabled
+        if self.running_avg_main is None:
+            self.running_avg_main = main_loss.detach()
+            self.running_avg_gates = gates_loss.detach()
+            self.running_avg_internal = internal_loss.detach()
+        else:
+            self.running_avg_main = self.momentum * self.running_avg_main + (1 - self.momentum) * main_loss.detach()
+            self.running_avg_gates = self.momentum * self.running_avg_gates + (1 - self.momentum) * gates_loss.detach()
+            self.running_avg_internal = self.momentum * self.running_avg_internal + (1 - self.momentum) * internal_loss.detach()
+        
+        # Only recalculate weights every update_interval steps
+        if (self.step_count % self.update_interval) == 0:
+            self.current_gates_weight = self.base_gates_weight * self.running_avg_main / (self.running_avg_gates + 1e-8)
+            self.current_internal_weight = self.base_internal_weight * self.running_avg_main / (self.running_avg_internal + 1e-8)
+
+            self.last_update_step = self.step_count
+        
+                    # Apply decay to the weights
+        if self.decay_steps > 0:
+            decay_factor = min(1, self.step_count / self.decay_steps)
+            self.current_gates_weight *= (1 - decay_factor)
+            self.current_internal_weight *= (1 - decay_factor)
+        
+        # Return the cached weights (updated only every update_interval steps)
+        self.step_count += 1
+        
+        
+        return self.current_gates_weight, self.current_internal_weight
+    
+    def get_current_weights(self):
+        """Get current weights without updating anything"""
+        if not self.enable_scaling:
+            return self.base_gates_weight, self.base_internal_weight
+        return self.current_gates_weight, self.current_internal_weight
 
 class MemoryWeightTracker(Callback):
     def __init__(self, log_interval=10, track_block_idx=0, track_gradients=True):
@@ -310,6 +946,7 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
         # Using a sub-directory in SAVE_DIR is a good practice.
         work_dir=str(Path(SAVE_DIR) / "dataset_cache"), # Ensure work_dir is a string
         generate_doc_lengths=INTRA_DOCUMENT_MASKING,
+        min_sequence_length=MIN_DOC_LENGTH, # Ensure MIN_SEQUENCE_LENGTH is defined
     )
 
     data_loader_config = NumpyDataLoaderConfig(
@@ -376,6 +1013,7 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
             reduce_dtype=DType.float32,
         ),
         max_grad_norm=1.0, # Consider making this configurable
+        max_grad_clip=active_config['clamp_max'],
         scheduler=CosWithWarmup(warmup_steps=200), # Consider making warmup_steps configurable
     )
 
@@ -391,7 +1029,7 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
             "checkpointer",
             CheckpointerCallback(
                 save_interval=500,
-                ephemeral_save_interval=100,
+                ephemeral_save_interval=50,
                 save_async=True,
             ),
         )
@@ -407,6 +1045,25 @@ def build_config(run_name: str, overrides: List[str]) -> TitanExperimentConfig:
             )
         .with_callback("config_saver", ConfigSaverCallback())
         .with_callback("garbage_collector", GarbageCollectorCallback())
+        .with_callback(
+            "validation",
+            ValidationCallbackConfig(
+                data_path=VAL_DATA_MANIFEST_PATH,  # Use the same manifest as training
+                tokenizer_config=tokenizer_config,
+                val_size=200,
+                eval_interval=50,
+                work_dir=str(Path(SAVE_DIR) / "val_cache"),
+                save_folder=f"{SAVE_DIR}/{run_name}",
+            ),
+        )
+        .with_callback(
+            "unstable_tracker",
+            UnstableGradientTrackerCallbackConfig(
+                tokenizer_config=tokenizer_config,
+                save_folder=f"{SAVE_DIR}/{run_name}",
+                track_top_k_tokens=50,
+            ),
+        )
         #.with_callback("memory_tracker", MemoryWeightTracker(log_interval=10))  # Add this line
     )
     
@@ -474,6 +1131,96 @@ def configure_training_parameters(model, only_train_memory=True):
     # Return count of trainable parameters
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+
+def log_accumulated_memory_metrics(train_module, trainer, aux_loss_tracker):
+    """Log accumulated memory metrics averaged across gradient accumulation steps"""
+    accumulator = train_module.memory_metrics_accumulator
+    
+    with torch.no_grad():
+        # Log auxiliary loss metrics - only if scaling is enabled
+        if aux_loss_tracker.enable_scaling:
+            if accumulator['aux_gates_losses']:
+                avg_gates_loss = torch.stack(accumulator['aux_gates_losses']).mean()
+                trainer.record_metric('train/memory/aux_gates_squared_loss', avg_gates_loss)
+                trainer.record_metric('train/memory/gates_weight', aux_loss_tracker.current_gates_weight)
+                # Only log running averages if they exist (not None)
+                if aux_loss_tracker.running_avg_gates is not None:
+                    trainer.record_metric('train/memory/running_avg_gates', aux_loss_tracker.running_avg_gates)
+            
+            if accumulator['aux_internal_losses']:
+                avg_internal_loss = torch.stack(accumulator['aux_internal_losses']).mean()
+                trainer.record_metric('train/memory/aux_internal_loss', avg_internal_loss)
+                trainer.record_metric('train/memory/internal_weight', aux_loss_tracker.current_internal_weight)
+                # Only log running averages if they exist (not None)
+                if aux_loss_tracker.running_avg_internal is not None:
+                    trainer.record_metric('train/memory/running_avg_internal', aux_loss_tracker.running_avg_internal)
+            
+            # Log running averages - only if they exist
+            if aux_loss_tracker.running_avg_main is not None:
+                trainer.record_metric('train/memory/running_avg_main_loss', aux_loss_tracker.running_avg_main)
+        else:
+            # When scaling is disabled, just log the fixed weights
+            if accumulator['aux_gates_losses']:
+                avg_gates_loss = torch.stack(accumulator['aux_gates_losses']).mean()
+                trainer.record_metric('train/memory/aux_gates_squared_loss', avg_gates_loss)
+                trainer.record_metric('train/memory/gates_weight', aux_loss_tracker.base_gates_weight)
+            
+            if accumulator['aux_internal_losses']:
+                avg_internal_loss = torch.stack(accumulator['aux_internal_losses']).mean()
+                trainer.record_metric('train/memory/aux_internal_loss', avg_internal_loss)
+                trainer.record_metric('train/memory/internal_weight', aux_loss_tracker.base_internal_weight)
+        
+        # Log chunk loss metrics (this doesn't depend on scaling)
+        if accumulator['chunk_losses']:
+            # Stack all chunk losses from all forward passes: [num_forwards, num_modules, num_chunks]
+            all_chunk_losses = torch.stack(accumulator['chunk_losses'])  # Shape: [8, 4, 6]
+            
+            # Average across forward passes
+            avg_chunk_losses = all_chunk_losses.mean(dim=0)  # Shape: [4, 6]
+            
+            # Calculate metrics
+            avg_loss = avg_chunk_losses.mean()
+            max_loss = avg_chunk_losses.max()
+            loss_slope = (avg_chunk_losses[:, 0] - avg_chunk_losses[:, -1]).mean()
+            last_loss = avg_chunk_losses[:, -1].mean()
+            
+            trainer.record_metric('train/memory/avg_chunk_loss', avg_loss)
+            trainer.record_metric('train/memory/max_chunk_loss', max_loss)
+            trainer.record_metric('train/memory/loss_slope', loss_slope)
+            trainer.record_metric('train/memory/last_chunk_loss', last_loss)
+        
+        # Log gate statistics (this doesn't depend on scaling)
+        if accumulator['gate_stats']:
+            # Stack all gate stats from all forward passes: [num_forwards, num_modules, num_stats]
+            all_gate_stats = torch.stack(accumulator['gate_stats'])  # Shape: [8, 4, 7]
+            
+            # Average across forward passes
+            avg_gate_stats = all_gate_stats.mean(dim=0)  # Shape: [4, 7]
+            
+            # Calculate metrics (averaging across modules)
+            min_gates_stat = avg_gate_stats[:, 0].mean()
+            max_gate_stat = avg_gate_stats[:, 1].mean()
+            mean_gate_stat = avg_gate_stats[:, 2].mean()
+            std_gate_stat = avg_gate_stats[:, 3].mean()
+            med_gate_stat = avg_gate_stats[:, 4].mean()
+            small_gate_stat = avg_gate_stats[:, 5].mean()
+            high_gate_stat = avg_gate_stats[:, 6].mean()
+            
+            trainer.record_metric('train/memory/mean_gate_stat', mean_gate_stat)
+            trainer.record_metric('train/memory/max_gate_stat', max_gate_stat)
+            trainer.record_metric('train/memory/min_gate_stat', min_gates_stat)
+            trainer.record_metric('train/memory/std_gate_stat', std_gate_stat)
+            trainer.record_metric('train/memory/small_gate_stat', small_gate_stat)
+            trainer.record_metric('train/memory/med_gate_stat', med_gate_stat)
+            trainer.record_metric('train/memory/high_gate_stat', high_gate_stat)
+        
+        # Log memory layer count (this doesn't need accumulation)
+        memory_layer_count = 0
+        for module_name, module_instance in train_module.model.named_modules():
+            if isinstance(module_instance, MAGReorderedNormTransformerBlock):
+                memory_layer_count += 1
+        trainer.record_metric('train/memory/memory_layers_count', memory_layer_count)
+
 def train(config: TitanExperimentConfig):
     # Set RNG states on all devices
     seed_all(config.init_seed)
@@ -498,16 +1245,45 @@ def train(config: TitanExperimentConfig):
     model = config.model.build(init_device=device)
     model = model.to(device)
     
+    def _wrap_block_for_ckpt(block):
+        # Skip memory-enabled blocks to avoid functorch conflicts
+        if hasattr(block, 'memory') and block.memory is not None:
+            print(f"Skipping checkpoint wrapping for memory block: {block.__class__.__name__}")
+            return
+            
+        def _fn(x, *args, **kwargs):
+            return block._orig_forward(x, *args, **kwargs)
+        block._orig_forward = block.forward     # save original
+        block.forward = lambda x, *a, **kw: ckpt.checkpoint(
+            _fn, x, *a, use_reentrant=False, **kw
+        )
+
+    # Walk over every Transformer block (plain only) and wrap it
+    for mod in model.modules():
+        if isinstance(mod, (
+            TransformerBlock
+        )):
+            _wrap_block_for_ckpt(mod)
+    
     # Configure which parameters to train based on phase
     only_train_memory = (config.phase == "memory_only")
     trainable_params = configure_training_parameters(model, only_train_memory=only_train_memory)
     log.info(f"Training mode: {config.phase} ({trainable_params:,} trainable parameters)")
     
     # Build training components
-    train_module = config.train_module.build(model)    
+    train_module = config.train_module.build(model) 
     
     # Keep a reference to the original method from the instance
     original_tm_model_forward = train_module.model_forward
+    
+    aux_loss_tracker = AuxiliaryLossTracker(
+        momentum=0.999, 
+        base_gates_weight=0.0, 
+        base_internal_weight=5e-5, #was 5e-3 last stable run,
+        update_interval= 32 * 50,  # Update weights every 50 macro steps
+        enable_scaling=True,
+        decay_steps=100*16
+    )
 
     # Define the new method that will replace train_module.model_forward
     # 'slf' will be the train_module instance when this is called as a method
@@ -522,6 +1298,7 @@ def train(config: TitanExperimentConfig):
         torch.cuda.empty_cache()
         
         # Call the original model_forward method correctly
+        # torch.compiler.cudagraph_mark_step_begin()
         outputs = original_tm_model_forward(input_ids, labels=labels, **kwargs)
         logits, loss, ce_loss, z_loss = outputs
         
@@ -535,110 +1312,95 @@ def train(config: TitanExperimentConfig):
             if isinstance(module_instance, MAGReorderedNormTransformerBlock):
                 memory_layer_count += 1
                 
-                # Auxiliary loss 1: Sum of gates^2
                 if hasattr(module_instance, 'gates') and module_instance.gates is not None:
                     gates_squared = torch.sum(module_instance.gates ** 2)
                     total_gates_squared_loss += gates_squared
                 
-                # Auxiliary loss 2: Internal loss from memory module
                 if hasattr(module_instance, 'internal_loss') and module_instance.internal_loss is not None:
                     total_internal_loss += module_instance.internal_loss
         
-        # Attach auxiliary losses to the logits using the OLMo Core function
-        if memory_layer_count > 0:
-            # Much smaller weights to start
-            gates_loss_weight = 0.0001   # Reduced from 0.001
-            internal_loss_weight = 0.01  # Reduced from 0.1
-            
-            # Or make them adaptive based on main loss scale
-            main_loss_scale = loss.detach()
-            gates_loss_weight = 0.001 * main_loss_scale / (total_gates_squared_loss.detach() + 1e-8)
-            internal_loss_weight = 0.01 * main_loss_scale / (total_internal_loss.detach() + 1e-8)
-            
-            # Clamp to reasonable ranges
-            gates_loss_weight = torch.clamp(gates_loss_weight, 1e-6, 0.01)
-            internal_loss_weight = torch.clamp(internal_loss_weight, 1e-6, 0.1)
-            
-            if total_gates_squared_loss > 0:
-                logits = attach_auxiliary_loss(logits, gates_loss_weight * total_gates_squared_loss)
-                trainer.record_metric('train/memory/aux_gates_squared_loss', total_gates_squared_loss)
-            
-            if total_internal_loss > 0:
-                logits = attach_auxiliary_loss(logits, internal_loss_weight * total_internal_loss)
-                trainer.record_metric('train/memory/aux_internal_loss', total_internal_loss)
-            
-            trainer.record_metric('train/memory/memory_layers_count', memory_layer_count)
         
-        # Collect memory chunk losses (your existing code)
+        # Initialize accumulation storage if it doesn't exist
+        if not hasattr(slf, 'memory_metrics_accumulator'):
+            slf.memory_metrics_accumulator = {
+                'chunk_losses': [],
+                'gate_stats': [],
+                'aux_gates_losses': [],
+                'aux_internal_losses': [],
+                'forward_count': 0
+            }
+        
+        # Get adaptive weights based on running averages
+        if memory_layer_count > 0:
+            gates_weight, internal_weight = aux_loss_tracker.update_and_get_weights(
+                loss, total_gates_squared_loss, total_internal_loss
+            )
+            loss = attach_auxiliary_loss(loss, gates_weight * total_gates_squared_loss)
+            ## Accumulate instead of logging immediately
+            slf.memory_metrics_accumulator['aux_gates_losses'].append(total_gates_squared_loss.detach())
+        
+            loss = attach_auxiliary_loss(loss, internal_weight * total_internal_loss)
+            # Accumulate instead of logging immediately
+            slf.memory_metrics_accumulator['aux_internal_losses'].append(total_internal_loss.detach())
+                
+                
+        # Manual gradient clipping after loss computation
+        # Note: This will only work if gradients have been computed
+        # if hasattr(slf, 'model'):
+        #     # Check if gradients exist (they should after backward pass)
+        #     has_grads = any(p.grad is not None for p in slf.model.parameters() if p.requires_grad)
+        #     if has_grads:
+        #         # Get the max_grad_norm from the train_module config
+        #         max_grad_norm = getattr(slf, 'max_grad_norm', 5.0)
+                
+        #         # Manually call gradient clipping
+        #         grad_norm = slf._clip_grad_norm(max_grad_norm)
+                
+        #         # Log the gradient norm for debugging
+        #         print(f"DEBUG: Manual gradient clipping applied. Grad norm: {grad_norm:.4f}")
+        
+        
+        # Collect memory chunk losses
         all_chunk_losses_for_step = []
         gate_stats_this_step = []
-        # Iterate over the modules of the raw model (slf.model)
+        
         for module_name, module_instance in slf.model.named_modules():
             if isinstance(module_instance, MAGReorderedNormTransformerBlock):
                 if hasattr(module_instance, 'chunk_losses_this_forward') and module_instance.chunk_losses_this_forward:
                     all_chunk_losses_for_step.append(torch.stack(module_instance.chunk_losses_this_forward))
-                    # Reset chunk losses for the next forward pass
                     module_instance.chunk_losses_this_forward = []
                 if hasattr(module_instance, 'gates_stats') and module_instance.gates_stats:
                     gate_stats_this_step.append(torch.stack(module_instance.gates_stats))
-                    # Reset gates stats for the next forward pass
                     module_instance.gates_stats = []
         
-        #print(len(all_chunk_losses_for_step), "chunk losses for this step") # 24 flat
-        #print(len(gate_stats_this_step), "gate stats for this step") # 16 flat
-
-        # Only compute metrics when we need them (avoid unnecessary CPU transfers)
+        # Accumulate chunk losses and gate stats
         if all_chunk_losses_for_step:
-            with torch.no_grad():
-                # Stack tensors first (keeping them on GPU)
-                stacked_losses = torch.stack(all_chunk_losses_for_step) # shaped [4, 6], [NUM_MEM_MODULES, NUM_CHUNKS]
-                #print(stacked_losses.shape, "stacked losses shape")
-                # Calculate stats on GPU
-                avg_loss = stacked_losses.mean()
-                max_loss = stacked_losses.max()
-                loss_slope = (stacked_losses[:, 0] - stacked_losses[:, -1]).mean()  # Slope from first to last chunk
-                last_loss = stacked_losses[:, -1].mean()
-                
-                # Record metrics (this will eventually need CPU values, but let PyTorch handle it)
-                trainer.record_metric('train/memory/avg_chunk_loss', avg_loss)
-                trainer.record_metric('train/memory/max_chunk_loss', max_loss)
-                trainer.record_metric('train/memory/loss_slope', loss_slope)
-                trainer.record_metric('train/memory/last_chunk_loss', last_loss)
-                
-                # For print statement, only move to CPU once if needed
-                # print(f"Loss stats - shape: {stacked_losses.shape}, avg: {avg_loss.item():.4f}, max: {max_loss.item():.4f}")
-                
-                # Store the calculated average loss on the train_module instance (slf)
-                slf.avg_memory_chunk_loss_for_step = avg_loss
-        
-        all_chunk_losses_for_step = []
+            stacked_losses = torch.stack(all_chunk_losses_for_step)
+            slf.memory_metrics_accumulator['chunk_losses'].append(stacked_losses.detach())
         
         if gate_stats_this_step:
-            with torch.no_grad():
-                # Stack tensors first (keeping them on GPU)
-                stacked_gate_stats = torch.stack(gate_stats_this_step) # Shaped [4, 4], [NUM_MEM_MODULES, NUM_STATS]
-                #print(stacked_gate_stats.shape, "stacked gates shape")
-                # Calculate stats on GPU                
-                min_gates_stat = stacked_gate_stats[:, 0].mean()  # Mean of min gate stats
-                max_gate_stat = stacked_gate_stats[:, 1].mean()  # Mean of max gate stats
-                mean_gate_stat = stacked_gate_stats[:, 2].mean()  # Mean of mean gate stats
-                std_gate_stat = stacked_gate_stats[:, 3].mean()  # Mean of std gate stats
-                med_gate_stat = stacked_gate_stats[:, 4].mean() # Mean of small gate stats if available
-                small_gate_stat = stacked_gate_stats[:, 5].mean()  # Mean of small gate stats if available
-                high_gate_stat = stacked_gate_stats[:, 6].mean()  # Mean of high gate stats if available
-                
-                # Record metrics (this will eventually need CPU values, but let PyTorch handle it)
-                trainer.record_metric('train/memory/mean_gate_stat', mean_gate_stat)
-                trainer.record_metric('train/memory/max_gate_stat', max_gate_stat)
-                trainer.record_metric('train/memory/min_gate_stat', min_gates_stat)
-                trainer.record_metric('train/memory/std_gate_stat', std_gate_stat)
-                trainer.record_metric('train/memory/small_gate_stat', small_gate_stat)
-                trainer.record_metric('train/memory/med_gate_stat', med_gate_stat)
-                trainer.record_metric('train/memory/high_gate_stat', high_gate_stat)
-                
-                # For print statement, only move to CPU once if needed
-                # print(f"Gate stats - shape: {stacked_gate_stats.shape}, avg: {avg_gate_stat.item():.4f}, max: {max_gate_stat.item():.4f}")
-        gate_stats_this_step = []
+            stacked_gate_stats = torch.stack(gate_stats_this_step)
+            slf.memory_metrics_accumulator['gate_stats'].append(stacked_gate_stats.detach())
+        
+        # Increment forward count
+        slf.memory_metrics_accumulator['forward_count'] += 1
+        
+        # Check if we've completed a full gradient accumulation cycle
+        # This should match your EFFECTIVE_BATCH_SIZE_COEFFICIENT (8 in your case)
+        if slf.memory_metrics_accumulator['forward_count'] >= EFFECTIVE_BATCH_SIZE_COEFFICIENT:
+            # Time to log the accumulated metrics
+            log_accumulated_memory_metrics(slf, trainer, aux_loss_tracker)
+            
+            # Reset accumulator for next step
+            slf.memory_metrics_accumulator = {
+                'chunk_losses': [],
+                'gate_stats': [],
+                'aux_gates_losses': [],
+                'aux_internal_losses': [],
+                'forward_count': 0
+            }
+        
+        # ... rest of existing code ...
         
         # In the patched model_forward function, add this line after calculating gradients:
         if verbose_memory:
@@ -671,8 +1433,11 @@ def train(config: TitanExperimentConfig):
     original_train_batch = train_module.train_batch
     
     def train_batch_with_autocast(batch, *args, **kwargs):
+        #torch.compiler.cudagraph_mark_step_begin()
         with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
-            return original_train_batch(batch, *args, **kwargs)
+            result = original_train_batch(batch, *args, **kwargs)
+        #torch.cuda.synchronize()
+        return result
     
     train_module.train_batch = train_batch_with_autocast
     
@@ -681,13 +1446,11 @@ def train(config: TitanExperimentConfig):
     
     # Always create a trainer with checkpoint loading disabled for full_model
     if config.phase == "full_model":
-        # Use deepcopy instead of .copy() method
         trainer_config = copy.deepcopy(config.trainer)
-        
-        # Create trainer with modified config
         trainer = trainer_config.build(train_module, data_loader)
         
-        trainer.maybe_load_checkpoint(CHECKPOINT)
+        if CHECKPOINT is not None:
+            trainer.load_checkpoint(CHECKPOINT, load_trainer_state=active_config['load_trainer'])
         
         # Save config to checkpoint dir
         config_dict = config.as_config_dict()
@@ -702,8 +1465,13 @@ def train(config: TitanExperimentConfig):
         
         # Regular checkpoint loading for memory_only phase
         if CHECKPOINT is not None:
-            if not trainer.maybe_load_checkpoint(trainer.save_folder):
-                trainer.load_checkpoint(CHECKPOINT)
+            if not trainer.maybe_load_checkpoint(trainer.save_folder, load_trainer_state=active_config['load_trainer']):
+                trainer.load_checkpoint(CHECKPOINT, load_trainer_state=active_config['load_trainer'])
+                
+                
+    for group_idx, group in enumerate(train_module.optim.param_groups):
+        initial_lr_field = train_module.scheduler.initial_lr_field #train_module.optim.initial_lr_field
+        group[initial_lr_field] = FULL_MODEL_LEARNING_RATE
     
     # Train for the specified number of steps
     if config.phase == "memory_only":
@@ -733,6 +1501,162 @@ def train(config: TitanExperimentConfig):
         log.info(f"Starting full-model training phase with fresh optimizer state")
         trainer.fit()
         
+# Custom generate function
+def simple_generate(model, input_ids, max_new_tokens=20, eos_token_id=None, pad_token_id=None):
+    """
+    Simple autoregressive generation using argmax token selection.
+    
+    Args:
+        model: The transformer model
+        input_ids: Initial token ids to start generation from
+        max_new_tokens: Maximum number of new tokens to generate
+        eos_token_id: End of sequence token ID (optional)
+        pad_token_id: Padding token ID (optional)
+    
+    Returns:
+        torch.Tensor: The generated token IDs including the input
+    """
+    # Make sure model is in evaluation mode
+    model.eval()
+    
+    # Keep track of original input shape and device
+    device = input_ids.device
+    batch_size = input_ids.shape[0]
+    
+    # Current sequence of tokens (will be extended during generation)
+    curr_ids = input_ids
+    
+    # Reset memory MLPs for clean generation
+    for module in model.modules():
+        if hasattr(module, 'memory') and module.memory is not None:
+            module.memory.reset_mlps()
+    
+    # Generate max_new_tokens, one token at a time
+    with torch.no_grad():
+        for _ in tqdm(range(max_new_tokens), desc="Generating"):
+            # Forward pass through the model to get next token logits
+            outputs = model(curr_ids)
+            
+            # Get logits for the next token (last position in sequence)
+            next_token_logits = outputs[:, -1, :]
+            
+            # Simple argmax selection (no sampling)
+            next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+            
+            # Append the new token to our current sequence
+            curr_ids = torch.cat([curr_ids, next_token], dim=1)
+            
+            # Stop if EOS token is generated in any sequence
+            if eos_token_id is not None and (next_token == eos_token_id).any():
+                # Find which sequences generated EOS
+                eos_indices = (next_token == eos_token_id).nonzero()
+                
+                # Only stop if all sequences generated EOS
+                if len(eos_indices) == batch_size:
+                    break
+    
+    return curr_ids
+
+def test_inference(config):
+    """Run inference using a saved model checkpoint to continue the TEST_STRING."""
+    # Set RNG states on all devices
+    seed_all(config.init_seed)
+    
+    # Enable higher precision matrix multiplication
+    torch.set_float32_matmul_precision('high')
+    
+    # Explicitly check which device we're using
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    log.info(f"Using device: {device} (CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', 'not set')})")
+    
+    # Diagnostic output to confirm which GPU is being used
+    if torch.cuda.is_available():
+        current_device = torch.cuda.current_device()
+        device_name = torch.cuda.get_device_name(current_device)
+        device_props = torch.cuda.get_device_properties(current_device)
+        log.info(f"Using CUDA device {current_device}: {device_name}")
+        log.info(f"Device capability: {device_props.major}.{device_props.minor}")
+        log.info(f"Total memory: {device_props.total_memory / 1e9:.2f} GB")
+    
+    # Build components - use "cuda:0" here as this will map to your selected GPU
+    model = config.model.build(init_device=device)
+    model = model.to(device)
+    
+    # Configure which parameters to train based on phase
+    only_train_memory = (config.phase == "memory_only")
+    trainable_params = configure_training_parameters(model, only_train_memory=only_train_memory)
+    log.info(f"Training mode: {config.phase} ({trainable_params:,} trainable parameters)")
+    
+    # Build training components
+    train_module = config.train_module.build(model)   
+    
+    
+    dataset = config.dataset.build()
+    data_loader = config.data_loader.build(dataset, dp_process_group=train_module.dp_process_group)
+
+    trainer_config = copy.deepcopy(config.trainer)
+    trainer = trainer_config.build(train_module, data_loader)
+    
+    if CHECKPOINT is not None:
+        trainer.load_checkpoint(CHECKPOINT, load_trainer_state=active_config['load_trainer'])
+    
+    # Save config to checkpoint dir
+    config_dict = config.as_config_dict()
+    cast(ConfigSaverCallback, trainer.callbacks["config_saver"]).config = config_dict
+    
+    
+    
+    # 8. Set model to eval mode after loading
+    model = train_module.model
+    model.eval()
+    
+    # 9. Add generate function to the model
+    model.generate = types.MethodType(simple_generate, model)
+    
+    # 10. Load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
+    
+    # 11. Tokenize input text
+    log.info(f"Input text: {TEST_STRING[:100]}...")
+    input_ids = tokenizer.encode(TEST_STRING, return_tensors="pt").to(model.device)
+    
+    # 12. Generate output
+    log.info(f"Generating text with {MAX_NEW_TOKENS} tokens...")
+    
+    with torch.no_grad():
+        with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+            # Reset memory MLPs before generation
+            for module in model.modules():
+                if hasattr(module, 'memory') and module.memory is not None:
+                    module.memory.reset_mlps()
+                    
+            output_ids = model.generate(
+                input_ids,
+                max_new_tokens=MAX_NEW_TOKENS,
+                eos_token_id=tokenizer.eos_token_id,
+                pad_token_id=tokenizer.pad_token_id if hasattr(tokenizer, 'pad_token_id') and tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+            )
+    
+    # 13. Decode output
+    generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    
+    # 14. Print results
+    log.info("=" * 80)
+    log.info("GENERATED TEXT:")
+    log.info("=" * 80)
+    log.info(generated_text)
+    log.info("=" * 80)
+    
+    # 15. Highlight the newly generated portion
+    original_length = len(TEST_STRING)
+    continuation = generated_text[original_length:]
+    
+    log.info("CONTINUATION ONLY:")
+    log.info("=" * 80)
+    log.info(continuation)
+    log.info("=" * 80)
+    
+    return generated_text
 
 if __name__ == "__main__":
     usage = f"""
@@ -740,6 +1664,7 @@ Usage
 =====
 
 › python {sys.argv[0]} train RUN_NAME [OVERRIDES...]
+› python {sys.argv[0]} test CHECKPOINT_PATH
 
 Examples
 ========
@@ -749,20 +1674,18 @@ Train the memory-only phase:
 
 Train the full-model phase with checkpoint:
 › python {sys.argv[0]} train titan_run02 --phase=full_model --checkpoint=/path/to/memory_only_checkpoint
+
+Test a model by generating text:
+› python {sys.argv[0]} test /path/to/checkpoint/step1000
     """.strip()
 
     if len(sys.argv) < 3:
         print(usage)
         sys.exit(1)
 
-    cmd, run_name, *overrides = sys.argv[1:]
-
-    if cmd != "train":
-        print(usage)
-        sys.exit(1)
-
-    # GPU selection using CUDA_VISIBLE_DEVICES
-    # This should be done before any torch.cuda calls or prepare_training_environment
+    cmd = sys.argv[1]
+    
+    # Set GPU selection using CUDA_VISIBLE_DEVICES before any CUDA calls
     if torch.cuda.is_available():
         num_gpus = torch.cuda.device_count()
         if DESIRED_GPU_ID < num_gpus:
@@ -778,28 +1701,46 @@ Train the full-model phase with checkpoint:
             )
             if num_gpus > 0:
                 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-            # If no GPUs, PyTorch will fall back to CPU.
     else:
-        log.info("CUDA not available. Training will use CPU.")
-
-    # For single GPU, use this environment variable to disable distributed setup
+        log.info("CUDA not available. Using CPU.")
+        
+    # For single GPU, use these environment variables to set up distributed environment
     os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
     os.environ["WORLD_SIZE"] = "1"
     os.environ["LOCAL_RANK"] = "0"
     os.environ["RANK"] = "0"
-    os.environ["MASTER_ADDR"] = "localhost"  # Add this line
+    os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355" 
-    os.environ["NUM_NODES"] = "1"       # Add this line
-    os.environ["LOCAL_WORLD_SIZE"] = "1" # Add this line
+    os.environ["NUM_NODES"] = "1"
+    os.environ["LOCAL_WORLD_SIZE"] = "1"
     os.environ["PYTORCH_FIND_UNUSED_PARAMETERS"] = "True"
-    
-    # Prepare training environment for single GPU
-    prepare_training_environment()
+        
 
-    config = build_config(run_name, overrides)
-    log.info(config)
+    if cmd == "train":
+        run_name, *overrides = sys.argv[2:]
+        # Prepare training environment for single GPU
+        prepare_training_environment()
 
-    try:
-        train(config)
-    finally:
-        teardown_training_environment()
+        config = build_config(run_name, overrides)
+        log.info(config)
+
+        try:
+            train(config)
+        finally:
+            teardown_training_environment()
+            
+    elif cmd == "test":
+        run_name, *overrides = sys.argv[2:]
+        # Prepare training environment for single GPU
+        prepare_training_environment()
+        
+        # Test inference doesn't need distributed setup
+        config = build_config(run_name, overrides)
+        try:
+            test_inference(config)
+        finally:
+            teardown_training_environment()
+        
+    else:
+        print(usage)
+        sys.exit(1)

@@ -6,6 +6,8 @@ import torch.utils.checkpoint as cp
 from typing import List
 import regex as re
 from torch.func import vjp, vmap
+import torch.utils.checkpoint
+
 
 class ParallelMLPs(nn.Module):
     _mlp_index_regex = re.compile(r"\.(\d+)\.")
@@ -29,7 +31,7 @@ class ParallelMLPs(nn.Module):
         raise ValueError(f"Parameter name {name} does not match expected format.")
     
     @staticmethod
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def soft_sqrt_clip(g: torch.Tensor, eps=1e-8) -> torch.Tensor:
         if g is None:
             return g
@@ -39,7 +41,7 @@ class ParallelMLPs(nn.Module):
         return g / torch.sqrt(norm + eps)
 
     @staticmethod
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def scaled_root_excess_norm(g: torch.Tensor, alpha=5, eps=1e-8) -> torch.Tensor:
         """
         Soft clipping function such that g is rescale to have a norm of:
@@ -52,7 +54,7 @@ class ParallelMLPs(nn.Module):
         return g * (final_norm / (norm + eps)) if norm > 0 else g
     
     @staticmethod
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def orthonormality_regularization(weight: torch.Tensor, lambda_ortho=0.005) -> torch.Tensor:
         """
         Apply orthonormality regularization to the weight matrix.
@@ -123,7 +125,7 @@ class ParallelMLPs(nn.Module):
         final_output = stacked_outputs + x
         return final_output
     
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def calculate_coeffs(self, beta_vecs, eta_vecs, theta_vecs):
         # ---------------------------------------------------------
         eps = 1e-7
@@ -155,7 +157,7 @@ class ParallelMLPs(nn.Module):
 
         return p_T, q_T, A_T, B_coeffs.unsqueeze(-1), D_coeffs.unsqueeze(-1)
     
-    # @torch.compile()
+    @torch.compile(dynamic=True)
     def compute_gradients(self, current_params, keys, values, b_coeffs, d_coeffs):
         def f(flat_params):
             return functional_call(self, flat_params, keys)
@@ -169,7 +171,7 @@ class ParallelMLPs(nn.Module):
         surp_grads = [grads_batched[name][1] for name in current_params.keys()]
         return mem_grads, surp_grads, sqerr
     
-    # @torch.compile()
+    @torch.compile(dynamic=True)
     def update_memory(self, current_params, surprises, keys, values, beta_vecs, eta_vecs, theta_vecs, ckpt_memory=True, audit_grad=True):
         with torch.enable_grad():  # Enable gradients for this specific block
             new_params = {}
@@ -323,7 +325,7 @@ class ParallelMLPs(nn.Module):
                 for name, grad in zip(current_params.keys(), surp_grads)
             }
 
-            mse = sqerr.sum(dim=-1).mean()
+            mse = sqerr.mean()
             return surprises, mse, new_params
         
     def reset_weights_from_template(self, template_weights: nn.ParameterDict):
@@ -357,7 +359,7 @@ class NeuralMemory(nn.Module):
                  nu = 0.01, l2_memory_weight = 0.00,
                  alpha_scale=0.015, eta_scale=0.1, theta_scale=3e-4,
                  use_global_sw = False, num_global_tokens = 0,
-                 use_conv=False, retrieve_layer=False,
+                 use_conv=False, retrieve_layer=True,
                  audit_grad=False):
         super().__init__()
 
@@ -391,6 +393,8 @@ class NeuralMemory(nn.Module):
         if self.retrieve_layer:
             torch.nn.init.normal_(self.retrieve_to_gate.weight, mean=0.0, std=0.02)
 
+        self.gate_norm = nn.LayerNorm(emb_dim, eps=1e-8, elementwise_affine=False)  # Layer normalization for gate
+        
         self.alpha = nn.Linear(emb_dim, 1, bias=True)
         self.eta = nn.Linear(emb_dim, 1, bias=True)
         self.theta = nn.Linear(emb_dim, 1, bias=True)
@@ -487,75 +491,102 @@ class NeuralMemory(nn.Module):
     def retrieve(self, x):
         return self.forward(x)
 
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def forward(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
 
-        queries = self.silu(self.Q(x))
-        if self.use_conv:
-            # Apply 1D depthwise-separable convolution
-            # Input to Conv1d: (B, N, L), current shape: (B, L, N)
-            queries = queries.transpose(1, 2)  # B, N, L -> B, L, N
-            queries = self.conv_q(queries)
-            queries = queries.transpose(1, 2)  # B, L, N -> B, N, L
-        queries = F.normalize(queries, eps=1e-8) # Normalize after convolution
+        def get_queries(x):
+            queries = self.silu(self.Q(x))
+            if self.use_conv:
+                # Apply 1D depthwise-separable convolution
+                # Input to Conv1d: (B, N, L), current shape: (B, L, N)
+                queries = queries.transpose(1, 2)  # B, N, L -> B, L, N
+                queries = self.conv_q(queries)
+                queries = queries.transpose(1, 2)  # B, L, N -> B, N, L
+            queries = F.normalize(queries, dim=-1, eps=1e-8) # Normalize after convolution
+            return queries
+
+        queries = torch.utils.checkpoint.checkpoint(get_queries, x, use_reentrant=False)  # Use checkpointing to save memory
 
         outputs = functional_call(self.mlps_processor, self.mlp_states[-1], queries)
         if not self.retrieve_layer:
             return outputs
         # transform retrieved memory to sigmoid gate inputs (not needed, but more intuitive imo)
-        outputs = self.retrieve_to_gate(outputs)
+        def get_gates(outputs):
+            return self.gate_norm(self.retrieve_to_gate(outputs))        
+        
+        
+        outputs = torch.utils.checkpoint.checkpoint(get_gates, outputs, use_reentrant=False)  # Use checkpointing to save memory
+        
         return outputs
 
-    # @torch.compile()
+    @torch.compile(dynamic=True)
     def update(self, x):
         if self.mlps_processor is None or self.mlp_states[-1] is None:
             raise RuntimeError("MLPs not initialized. Call init_mlp(batch_size) first.")
         
         self.mlp_reset = False
         z = x.detach()
-           
-        # NOT SURE IF THIS SHOULD GO BEFORE OR AFTER THE DETATCH
         
-        if self.use_global_sw and self.num_global_tokens > 0:
-            # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
-            repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)
-            
-            # Expand to match batch size [1, num_global_tokens, emb_dim] -> [batch_size, num_global_tokens, emb_dim]
-            repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)
-            
-            # Concatenate with input along sequence dimension
-            z = torch.cat([repeated_persistent_tokens, z], dim=1)
-
-        # Evaluate the corresponding keys and values
-        keys = self.silu(self.K(z))
-        values = self.silu(self.V(z))
-
-        if self.use_conv:
-            # Apply 1D depthwise-separable convolution to keys
-            # B, N, L -> B, L, N
-            keys = keys.transpose(1, 2)
-            values = values.transpose(1, 2)
-
-            keys = self.conv_k(keys)
-            values = self.conv_v(values)
-
-            # B, L, N -> B, N, L
-            keys = keys.transpose(1, 2)
-            values = values.transpose(1, 2)
+        # Define preprocessing function that can be checkpointed
+        def preprocess_inputs(z):
+            if self.use_global_sw and self.num_global_tokens > 0:
+                # Add batch dimension [num_global_tokens, emb_dim] -> [1, num_global_tokens, emb_dim]
+                repeated_persistent_tokens = self.persistent_tokens.unsqueeze(0)
+                
+                # Expand to match batch size
+                repeated_persistent_tokens = repeated_persistent_tokens.expand(z.shape[0], -1, -1)
+                
+                # Concatenate with input along sequence dimension
+                z = torch.cat([repeated_persistent_tokens, z], dim=1)
+            return z
         
-        keys = F.normalize(keys, eps=1e-8)
-        values = F.normalize(values, eps=1e-8)
-
-        # Computing β, η, & θ vectors which are gated between 0 and 1: B, N, D -> B, N
-        beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)  # (B, N)
-        eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)  # (B, N)
-        theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)  # (B, N)
-
-        self.surprise, losses, next_mlp_params = self.mlps_processor.update_memory(  # type: ignore
-            self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec, audit_grad = self.audit_grad
+        # Use checkpointing for preprocessing
+        z = torch.utils.checkpoint.checkpoint(preprocess_inputs, z, use_reentrant=False)
+        
+        # Define key-value computation function that can be checkpointed
+        def compute_keys_values(z):
+            # Evaluate the corresponding keys and values
+            keys = self.silu(self.K(z))
+            values = self.silu(self.V(z))
+            
+            if self.use_conv:
+                # Apply 1D depthwise-separable convolution to keys
+                keys = keys.transpose(1, 2)
+                values = values.transpose(1, 2)
+                
+                keys = self.conv_k(keys)
+                values = self.conv_v(values)
+                
+                keys = keys.transpose(1, 2)
+                values = values.transpose(1, 2)
+            
+            keys = F.normalize(keys, dim=-1, eps=1e-8)
+            values = F.normalize(values, dim=-1, eps=1e-8)
+            return keys, values
+        
+        # Use checkpointing for key-value computation
+        keys, values = torch.utils.checkpoint.checkpoint(compute_keys_values, z, use_reentrant=False)
+        
+        # Define coefficient computation that can be checkpointed
+        def compute_coefficients(keys):
+            beta_vec = 1 - self.alpha_scale * self.sigmoid(self.alpha(keys)).squeeze(-1)
+            eta_vec = 1 - self.eta_scale * self.sigmoid(self.eta(keys)).squeeze(-1)
+            theta_vec = self.theta_scale * self.sigmoid(self.theta(keys)).squeeze(-1)
+            return beta_vec, eta_vec, theta_vec
+        
+        # Use checkpointing for coefficient computation
+        beta_vec, eta_vec, theta_vec = torch.utils.checkpoint.checkpoint(
+            compute_coefficients, keys, use_reentrant=False
         )
+        
+        # DON'T checkpoint this part - it uses functorch operations
+        self.surprise, losses, next_mlp_params = self.mlps_processor.update_memory(
+            self.mlp_states[-1], self.surprise, keys, values, beta_vec, eta_vec, theta_vec, 
+            audit_grad=self.audit_grad
+        )
+        
         if self.training:
             self.mlp_states.append(next_mlp_params)
         return losses
@@ -611,7 +642,7 @@ class NeuralMemory(nn.Module):
         del reference_mlp
         return template_weights
 
-    @torch.compile()
+    @torch.compile(dynamic=True)
     def train_initial_mlp(self, learnable=True):
         """
         Aggregate parameters from every stored MLP state and update the

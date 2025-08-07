@@ -1,0 +1,1 @@
+{"eval_current_perplexity":17.382181388766067,"_runtime":1084.102494513,"eval_avg_loss":2.6504398718118667,"eval_tokens":20460000,"_step":4999,"eval_batches":5000,"eval_current_loss":2.855445623397827,"eval_avg_perplexity":14.160265977513502,"_timestamp":1.7520794054214647e+09,"_wandb":{"runtime":1084}}

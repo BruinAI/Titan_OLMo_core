@@ -1,0 +1,4 @@
+preprocessed/pes2o/allenai/dolma2-tokenizer/part-03-00000.npy
+preprocessed/pes2o/allenai/dolma2-tokenizer/part-08-00000.npy
+preprocessed/pes2o/allenai/dolma2-tokenizer/part-18-00000.npy
+preprocessed/pes2o/allenai/dolma2-tokenizer/part-15-00000.npy
